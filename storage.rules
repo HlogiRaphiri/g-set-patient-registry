@@ -1,0 +1,17 @@
+rules_version = '2';
+
+// Storage rules for the G-Set Patient Registry.
+// The Spark free plan includes Firebase Storage. Uploads (e.g. facility CSVs
+// or optional attachments) are restricted to signed-in users; only the
+// Superuser may write to the admin area.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /public/{allPaths=**} {
+      allow read: if request.auth != null;
+    }
+    match /admin/{allPaths=**} {
+      allow read, write: if request.auth != null
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'Superuser';
+    }
+  }
+}

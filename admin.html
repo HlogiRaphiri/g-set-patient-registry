@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin — G-Set</title>
+  <link rel="icon" href="assets/logo.png" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap5.min.css" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="app-shell" id="appShell"></div>
+
+  <template id="pageTpl">
+    <div class="panel-head">
+      <div><div class="eyebrow">Administration</div><h1 style="font-size:1.6rem;margin:0">System Administration</h1></div>
+    </div>
+
+    <ul class="nav nav-pills mb-3 flex-wrap" id="adminTabs">
+      <li class="nav-item"><button class="nav-link active" data-tab="users"><i class="fa-solid fa-users me-1"></i>Users</button></li>
+      <li class="nav-item"><button class="nav-link" data-tab="facilities"><i class="fa-solid fa-hospital me-1"></i>Facilities</button></li>
+      <li class="nav-item"><button class="nav-link" data-tab="vehicles"><i class="fa-solid fa-truck-medical me-1"></i>Vehicles</button></li>
+      <li class="nav-item"><button class="nav-link" data-tab="audit"><i class="fa-solid fa-clipboard-list me-1"></i>Audit Logs</button></li>
+      <li class="nav-item"><button class="nav-link" data-tab="setup"><i class="fa-solid fa-database me-1"></i>System Setup</button></li>
+    </ul>
+
+    <!-- USERS -->
+    <section data-pane="users">
+      <div class="row g-3">
+        <div class="col-lg-4">
+          <div class="glass panel">
+            <h3 class="mb-3" style="font-size:1.05rem">Create User</h3>
+            <form id="createUserForm" autocomplete="off">
+              <div class="mb-2"><label class="form-label">Full Name</label><input class="form-control" id="nuName" required></div>
+              <div class="mb-2"><label class="form-label">Email</label><input type="email" class="form-control" id="nuEmail" required></div>
+              <div class="mb-2"><label class="form-label">Role</label><select class="form-select" id="nuRole" required></select></div>
+              <div class="mb-2"><label class="form-label">District (optional)</label><select class="form-select" id="nuDistrict"><option value="">— none —</option></select></div>
+              <div class="mb-3"><label class="form-label">Temporary Password</label>
+                <div class="input-group"><input class="form-control" id="nuPass" minlength="6" required>
+                  <button type="button" class="btn btn-ghost" id="genPass" title="Generate"><i class="fa-solid fa-dice"></i></button></div>
+                <small class="text-faint">Share securely. The user should reset it on first sign-in.</small>
+              </div>
+              <button class="btn btn-ems w-100" id="createUserBtn"><i class="fa-solid fa-user-plus me-1"></i>Create Account</button>
+            </form>
+          </div>
+        </div>
+        <div class="col-lg-8">
+          <div class="glass panel">
+            <div class="panel-head"><h3 style="font-size:1.05rem">User Accounts</h3></div>
+            <div class="table-responsive">
+              <table class="table table-hover align-middle" id="usersTable" style="width:100%">
+                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>District</th><th>Status</th><th></th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FACILITIES -->
+    <section data-pane="facilities" hidden>
+      <div class="glass panel mb-3">
+        <form class="row g-2 align-items-end" id="addFacilityForm">
+          <div class="col-md-4"><label class="form-label">Facility Name</label><input class="form-control" id="afName" required></div>
+          <div class="col-md-3"><label class="form-label">District</label><select class="form-select" id="afDistrict" required></select></div>
+          <div class="col-md-2"><label class="form-label">Type</label><select class="form-select" id="afType"><option>Clinic</option><option>CHC</option><option>Hospital</option><option>Community Day Centre</option></select></div>
+          <div class="col-md-3 d-flex gap-2">
+            <input class="form-control" id="afLat" placeholder="Lat"><input class="form-control" id="afLng" placeholder="Lng">
+          </div>
+          <div class="col-12"><button class="btn btn-ems" id="addFacBtn"><i class="fa-solid fa-plus me-1"></i>Add Facility</button></div>
+        </form>
+      </div>
+      <div class="glass panel">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle" id="facTable" style="width:100%">
+            <thead><tr><th>Name</th><th>District</th><th>Type</th><th>Coordinates</th></tr></thead><tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- VEHICLES -->
+    <section data-pane="vehicles" hidden>
+      <div class="glass panel mb-3">
+        <form class="row g-2 align-items-end" id="addVehicleForm">
+          <div class="col-md-3"><label class="form-label">Registration</label><input class="form-control" id="avReg" placeholder="GS-009-GP" required></div>
+          <div class="col-md-3"><label class="form-label">District</label><select class="form-select" id="avDistrict" required></select></div>
+          <div class="col-md-4"><label class="form-label">Type</label><select class="form-select" id="avType"><option>Advanced Life Support</option><option>Intermediate Life Support</option><option>Basic Life Support</option><option>Patient Transport</option></select></div>
+          <div class="col-md-2"><button class="btn btn-ems w-100" id="addVehBtn"><i class="fa-solid fa-plus me-1"></i>Add</button></div>
+        </form>
+      </div>
+      <div class="glass panel">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle" id="vehTable" style="width:100%">
+            <thead><tr><th>Registration</th><th>District</th><th>Type</th></tr></thead><tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- AUDIT -->
+    <section data-pane="audit" hidden>
+      <div class="glass panel">
+        <div class="panel-head"><h3 style="font-size:1.05rem">Audit Trail</h3><span class="text-faint" id="auditCount"></span></div>
+        <div class="table-responsive">
+          <table class="table table-hover align-middle" id="auditTable" style="width:100%">
+            <thead><tr><th>When</th><th>Action</th><th>Actor</th><th>Role</th><th>Details</th></tr></thead><tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETUP -->
+    <section data-pane="setup" hidden>
+      <div class="row g-3">
+        <div class="col-lg-6">
+          <div class="glass panel">
+            <h3 style="font-size:1.05rem">Seed Reference Data</h3>
+            <p class="text-dim">Import the five districts, all EMS stations, starter vehicles and the 466 Gauteng healthcare facilities into Firestore. Safe to run more than once.</p>
+            <button class="btn btn-ems" id="seedBtn"><i class="fa-solid fa-cloud-arrow-up me-1"></i>Run Import</button>
+            <pre id="seedLog" class="mono mt-3 p-3" style="background:rgba(6,11,28,.6);border-radius:10px;max-height:220px;overflow:auto;font-size:.8rem;color:var(--cyan-400)"></pre>
+          </div>
+        </div>
+        <div class="col-lg-6">
+          <div class="glass panel">
+            <h3 style="font-size:1.05rem">Current Data</h3>
+            <div class="kpi-grid" id="countGrid"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </template>
+
+  <!-- Reset password modal -->
+  <div class="modal fade" id="resetModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content glass glass-strong">
+    <div class="modal-header border-0"><h5 class="modal-title">Reset Password</h5><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body"><p class="text-dim">Send a password-reset email to <strong id="resetEmail"></strong>? They’ll receive a secure link to choose a new password.</p></div>
+    <div class="modal-footer border-0"><button class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button><button class="btn btn-ems" id="confirmReset"><i class="fa-solid fa-paper-plane me-1"></i>Send Reset Link</button></div>
+  </div></div></div>
+
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.8/js/dataTables.bootstrap5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script type="module" src="js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "default": "g-set-registry"
+  },
+  "targets": {},
+  "etags": {}
+}

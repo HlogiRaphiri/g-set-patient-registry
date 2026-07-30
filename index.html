@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>G-Set Patient Registry — Sign in</title>
+  <meta name="description" content="Gauteng Emergency Medical Services Patient Transfer Registry" />
+  <link rel="icon" href="assets/logo.png" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <style>
+    /* ---- Login: staff photo background with a navy dispatch scrim ---- */
+    .login-page { min-height: 100vh; min-height: 100dvh; position: relative; overflow: hidden;
+      display: grid; place-items: center; padding: 24px; }
+
+    /* The uploaded crew photo, gently darkened and edge-vignetted. */
+    .login-bg { position: fixed; inset: 0; z-index: -3;
+      background: url("assets/staff.jpg") center 28% / cover no-repeat;
+      transform: scale(1.06); filter: saturate(1.05); }
+    /* Diagonal navy gradient so the card reads while the crew stays visible. */
+    .login-scrim { position: fixed; inset: 0; z-index: -2;
+      background:
+        radial-gradient(1100px 700px at 78% 8%, rgba(255,107,26,.20), transparent 55%),
+        linear-gradient(115deg, rgba(6,11,28,.92) 0%, rgba(10,18,48,.80) 42%, rgba(6,11,28,.55) 72%, rgba(6,11,28,.86) 100%);
+    }
+    /* Soft top/bottom vignette for depth. */
+    .login-vignette { position: fixed; inset: 0; z-index: -1; pointer-events: none;
+      background: radial-gradient(130% 100% at 50% 0%, transparent 55%, rgba(6,11,28,.6) 100%); }
+
+    .login-card {
+      width: 100%; max-width: 452px; padding: 40px 38px 32px;
+      border-radius: 26px;
+      background: linear-gradient(158deg, rgba(14,22,52,.28), rgba(8,14,36,.18));
+      border: 1px solid rgba(180,205,255,.28);
+      box-shadow: 0 30px 80px -28px rgba(0,0,0,.85), inset 0 1px 0 rgba(255,255,255,.16);
+      -webkit-backdrop-filter: blur(7px) saturate(118%);
+      backdrop-filter: blur(7px) saturate(118%);
+      animation: cardRise .7s cubic-bezier(.2,.7,.2,1) both;
+    }
+    @keyframes cardRise { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: none; } }
+
+    .login-logo-ring {
+      width: 148px; height: 148px; margin: 0 auto; border-radius: 32px;
+      display: grid; place-items: center;
+      background: radial-gradient(circle at 50% 30%, rgba(255,131,66,.30), rgba(255,107,26,.04) 72%);
+      box-shadow: 0 16px 44px -12px var(--ems-glow);
+    }
+    .login-logo-ring img { width: 128px; height: 128px; object-fit: contain;
+      filter: drop-shadow(0 8px 18px rgba(0,0,0,.55)); }
+
+    .login-eyebrow { color: var(--ems-400); text-transform: uppercase;
+      letter-spacing: .32em; font-size: .68rem; font-weight: 600;
+      font-family: var(--font-display); margin-top: 18px; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+    .login-title { font-family: var(--font-display); font-weight: 700;
+      font-size: 1.95rem; letter-spacing: .01em; margin: 4px 0 3px; color: #fff; line-height: 1.05;
+      text-shadow: 0 2px 8px rgba(0,0,0,.7); }
+    .login-sub { color: #dbe6ff; font-size: .9rem; margin-bottom: 26px; text-shadow: 0 1px 5px rgba(0,0,0,.65); }
+
+    .field-label { font-size: .74rem; text-transform: uppercase; letter-spacing: .11em;
+      color: #eaf0ff; font-weight: 600; margin: 0 0 7px 2px; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+
+    .field { position: relative; margin-bottom: 18px; }
+    .field > .lead-ic { position: absolute; left: 15px; top: 50%; transform: translateY(-50%);
+      color: var(--text-faint); font-size: .95rem; pointer-events: none; transition: color .2s; }
+    .field .form-control {
+      height: 52px; padding-left: 44px; padding-right: 44px;
+      background: rgba(6,11,28,.42); border: 1px solid rgba(180,205,255,.30);
+      border-radius: 14px; color: var(--text); font-size: .98rem;
+      -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+    }
+    .field .form-control::placeholder { color: var(--text-faint); }
+    .field .form-control:focus {
+      background: rgba(6,11,28,.62); border-color: var(--ems-400);
+      box-shadow: 0 0 0 .22rem rgba(255,107,26,.16);
+    }
+    .field .form-control:focus + .lead-ic, .field.focused .lead-ic { color: var(--ems-400); }
+    .pw-toggle { position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+      width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px;
+      color: var(--text-faint); background: none; border: none; cursor: pointer; transition: color .2s, background .2s; }
+    .pw-toggle:hover { color: var(--cyan-400); background: rgba(56,225,255,.10); }
+
+    .forgot { color: var(--cyan-400); font-size: .84rem; text-decoration: none; }
+    .forgot:hover { color: #fff; text-decoration: underline; }
+
+    .btn-signin {
+      height: 54px; width: 100%; border: none; border-radius: 14px;
+      font-family: var(--font-display); font-weight: 700; font-size: 1.08rem; letter-spacing: .02em;
+      color: #1a0d02; cursor: pointer;
+      background: linear-gradient(180deg, var(--ems-400), var(--ems-500));
+      box-shadow: 0 14px 30px -10px var(--ems-glow), inset 0 1px 0 rgba(255,255,255,.4);
+      transition: transform .15s ease, box-shadow .2s ease, filter .2s ease;
+    }
+    .btn-signin:hover { transform: translateY(-2px); box-shadow: 0 20px 40px -12px var(--ems-glow), inset 0 1px 0 rgba(255,255,255,.5); }
+    .btn-signin:active { transform: translateY(0); filter: brightness(.97); }
+    .btn-signin:disabled { opacity: .8; transform: none; cursor: default; }
+
+    .login-or { display: flex; align-items: center; gap: 12px; margin: 20px 0 14px; color: var(--text-faint); font-size: .72rem; text-transform: uppercase; letter-spacing: .12em; }
+    .login-or::before, .login-or::after { content: ""; flex: 1; height: 1px; background: rgba(180,205,255,.18); }
+    .btn-public { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+      height: 50px; border-radius: 14px; text-decoration: none; font-family: var(--font-display);
+      font-weight: 600; font-size: 1rem; color: var(--cyan-400);
+      background: rgba(56,225,255,.08); border: 1px solid rgba(56,225,255,.32);
+      transition: transform .15s ease, background .2s ease, box-shadow .2s ease; }
+    .btn-public:hover { background: rgba(56,225,255,.16); color: #eaffff; transform: translateY(-2px); box-shadow: 0 12px 26px -12px rgba(56,225,255,.5); }
+    .btn-public .pub-tag { font-size: .6rem; font-weight: 600; text-transform: uppercase; letter-spacing: .1em;
+      color: #062a33; background: var(--cyan-400); padding: 2px 8px; border-radius: 999px; margin-left: 4px; }
+    .login-foot { color: var(--text-faint); font-size: .76rem; margin: 22px 0 0; line-height: 1.5; }
+    .login-foot i { color: var(--ems-400); }
+
+    @media (max-width: 480px) {
+      .login-card { padding: 32px 24px 26px; border-radius: 22px; }
+      .login-title { font-size: 1.7rem; }
+      .login-bg { background-position: 62% 28%; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .login-card { animation: none; }
+      .login-bg { transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="login-bg" aria-hidden="true"></div>
+  <div class="login-scrim" aria-hidden="true"></div>
+  <div class="login-vignette" aria-hidden="true"></div>
+
+  <main class="login-page">
+    <section class="login-card text-center" id="loginCard" role="dialog" aria-labelledby="loginTitle">
+      <div class="login-logo-ring">
+        <img src="assets/logo.png" alt="G-Set Gauteng Schedule Emergency Transport crest" />
+      </div>
+      <div class="login-eyebrow">Gauteng Emergency Medical Services</div>
+      <h1 class="login-title" id="loginTitle">G-Set Patient Registry</h1>
+      <p class="login-sub">Patient transfer registry · authorised personnel only</p>
+
+      <form id="loginForm" class="text-start" novalidate>
+        <p class="field-label">Email address</p>
+        <div class="field">
+          <input type="email" class="form-control" id="email" autocomplete="username" placeholder="you@gauteng.gov.za" required />
+          <i class="fa-solid fa-envelope lead-ic"></i>
+        </div>
+
+        <p class="field-label">Password</p>
+        <div class="field">
+          <input type="password" class="form-control" id="password" autocomplete="current-password" placeholder="Enter your password" required />
+          <i class="fa-solid fa-lock lead-ic"></i>
+          <button type="button" class="pw-toggle" id="pwToggle" aria-label="Show password"><i class="fa-solid fa-eye"></i></button>
+        </div>
+
+        <div class="d-flex justify-content-end mb-2">
+          <a href="#" id="forgotLink" class="forgot">Forgot password?</a>
+        </div>
+
+        <div id="loginError" class="text-danger mb-2" style="font-size:.86rem;min-height:1.1em" role="alert"></div>
+
+        <button type="submit" class="btn-signin" id="loginBtn">
+          <i class="fa-solid fa-right-to-bracket me-1"></i> Sign in
+        </button>
+      </form>
+
+      <div class="login-or"><span>or view live operations</span></div>
+      <a href="public-dashboard.html" class="btn-public">
+        <i class="fa-solid fa-chart-line me-1"></i> Provincial Health Operations Centre
+        <span class="pub-tag">no sign-in</span>
+      </a>
+
+      <p class="login-foot">
+        <i class="fa-solid fa-shield-halved me-1"></i>
+        Accounts are created by the system administrator. There is no public sign-up.
+      </p>
+    </section>
+  </main>
+
+  <script>
+    /* Lift the leading icon colour while a field is focused (progressive, non-critical). */
+    document.querySelectorAll(".field .form-control").forEach((el) => {
+      el.addEventListener("focus", () => el.closest(".field").classList.add("focused"));
+      el.addEventListener("blur", () => el.closest(".field").classList.remove("focused"));
+    });
+  </script>
+  <script type="module" src="js/login.js"></script>
+</body>
+</html>

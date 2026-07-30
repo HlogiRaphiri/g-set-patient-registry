@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Heatmaps — G-Set</title>
+  <link rel="icon" href="assets/logo.png" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="app-shell" id="appShell"></div>
+
+  <template id="pageTpl">
+    <div class="panel-head">
+      <div>
+        <div class="eyebrow">Geospatial</div>
+        <h1 style="font-size:1.6rem;margin:0">Activity Heatmaps</h1>
+      </div>
+      <div class="btn-group" id="layerToggle" role="group">
+        <button class="btn btn-ems btn-sm active" data-layer="pickup"><i class="fa-solid fa-hospital me-1"></i>Pickup</button>
+        <button class="btn btn-ghost btn-sm" data-layer="receiving"><i class="fa-solid fa-house-medical me-1"></i>Receiving</button>
+        <button class="btn btn-ghost btn-sm" data-layer="density"><i class="fa-solid fa-layer-group me-1"></i>Facility Density</button>
+      </div>
+    </div>
+
+    <div class="glass panel mb-3">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3"><label class="form-label">District</label><select class="form-select" id="fDistrict"><option value="">All districts</option></select></div>
+        <div class="col-md-3"><label class="form-label">From</label><input type="date" class="form-select" id="fFrom"></div>
+        <div class="col-md-3"><label class="form-label">To</label><input type="date" class="form-select" id="fTo"></div>
+        <div class="col-md-3"><button class="btn btn-ems w-100" id="applyBtn"><i class="fa-solid fa-filter me-1"></i>Apply</button></div>
+      </div>
+    </div>
+
+    <div class="glass panel">
+      <div id="map" class="leaflet-map"></div>
+      <div class="d-flex justify-content-between mt-2 text-faint" style="font-size:.8rem">
+        <span id="mapCaption">Patient pickup density across Gauteng</span>
+        <span id="pointCount">—</span>
+      </div>
+    </div>
+
+    <div class="row g-3 mt-1" id="districtCards"></div>
+  </template>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+  <script type="module" src="js/heatmaps.js"></script>
+</body>
+</html>

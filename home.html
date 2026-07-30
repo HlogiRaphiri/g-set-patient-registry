@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Home — G-Set Patient Registry</title>
+  <link rel="icon" href="assets/logo.png" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="app-shell" id="appShell"><!-- shell injected by layout.js --></div>
+
+  <template id="pageTpl">
+    <section class="glass panel mb-4" style="overflow:hidden;position:relative">
+      <div style="position:absolute;inset:0;z-index:0;opacity:.5;background:radial-gradient(600px 260px at 90% -40%,rgba(255,107,26,.22),transparent 70%)"></div>
+      <div class="row align-items-center g-4" style="position:relative;z-index:1">
+        <div class="col-lg-7">
+          <div class="eyebrow" id="greeting">Welcome</div>
+          <h1 style="font-size:2.2rem;margin:.2rem 0" id="welcomeName">—</h1>
+          <p class="text-dim mb-3" id="welcomeRole">—</p>
+          <div class="d-flex flex-wrap gap-3">
+            <div class="glass panel py-2 px-3"><div class="text-faint" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.1em">Date</div><div class="mono" id="heroDate">—</div></div>
+            <div class="glass panel py-2 px-3"><div class="text-faint" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.1em">Time</div><div class="mono" style="font-size:1.15rem" id="heroTime">--:--:--</div></div>
+            <div class="glass panel py-2 px-3"><div class="text-faint" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.1em">Weather · JHB</div><div class="mono" id="heroWx"><span class="text-faint">loading…</span></div></div>
+          </div>
+        </div>
+        <div class="col-lg-5 text-center d-none d-lg-block">
+          <img src="assets/logo.png" alt="G-Set crest" style="width:170px;filter:drop-shadow(0 18px 40px rgba(0,0,0,.6))" />
+        </div>
+      </div>
+    </section>
+
+    <div class="eyebrow mb-2">Quick actions</div>
+    <div class="row g-3" id="tiles"></div>
+  </template>
+
+  <script type="module" src="js/home.js"></script>
+</body>
+</html>

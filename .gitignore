@@ -1,0 +1,7 @@
+# Local Firebase artifacts
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.DS_Store
+node_modules/
