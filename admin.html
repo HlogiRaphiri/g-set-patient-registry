@@ -86,17 +86,31 @@
     <!-- VEHICLES -->
     <section data-pane="vehicles" hidden>
       <div class="glass panel mb-3">
+        <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between">
+          <div>
+            <h3 style="font-size:1.05rem;margin:0">Import G-Set Fleet</h3>
+            <p class="text-dim mb-0" style="font-size:.9rem">Load the full vehicle list from the G-Set dataset. Safe to run more than once.</p>
+          </div>
+          <button class="btn btn-ems" id="importVehiclesBtn"><i class="fa-solid fa-cloud-arrow-up me-1"></i>Import Fleet</button>
+        </div>
+        <pre id="vehImportLog" class="mono mt-3 p-3" style="background:rgba(6,11,28,.6);border-radius:10px;max-height:180px;overflow:auto;font-size:.8rem;color:var(--cyan-400)"></pre>
+      </div>
+
+      <div class="glass panel mb-3">
+        <h3 style="font-size:1.05rem" class="mb-3">Add a Single Vehicle</h3>
         <form class="row g-2 align-items-end" id="addVehicleForm">
-          <div class="col-md-3"><label class="form-label">Registration</label><input class="form-control" id="avReg" placeholder="GS-009-GP" required></div>
-          <div class="col-md-3"><label class="form-label">District</label><select class="form-select" id="avDistrict" required></select></div>
-          <div class="col-md-4"><label class="form-label">Type</label><select class="form-select" id="avType"><option>Advanced Life Support</option><option>Intermediate Life Support</option><option>Basic Life Support</option><option>Patient Transport</option></select></div>
-          <div class="col-md-2"><button class="btn btn-ems w-100" id="addVehBtn"><i class="fa-solid fa-plus me-1"></i>Add</button></div>
+          <div class="col-md-3"><label class="form-label">Registration</label><input class="form-control" id="avReg" style="text-transform:uppercase" placeholder="GSET0009" required></div>
+          <div class="col-md-3"><label class="form-label">District</label><select class="form-select" id="avDistrict" required><option value="">Select district…</option></select></div>
+          <div class="col-md-3"><label class="form-label">EMS Station</label><select class="form-select" id="avStation"><option value="">Select district first…</option></select></div>
+          <div class="col-md-2"><label class="form-label">Type</label><select class="form-select" id="avType"><option value="">—</option><option>Advanced Life Support</option><option>Intermediate Life Support</option><option>Basic Life Support</option><option>Patient Transport</option></select></div>
+          <div class="col-md-1"><button class="btn btn-ems w-100" id="addVehBtn"><i class="fa-solid fa-plus"></i></button></div>
         </form>
       </div>
+
       <div class="glass panel">
         <div class="table-responsive">
           <table class="table table-hover align-middle" id="vehTable" style="width:100%">
-            <thead><tr><th>Registration</th><th>District</th><th>Type</th></tr></thead><tbody></tbody>
+            <thead><tr><th>Registration</th><th>District</th><th>EMS Station</th><th>Type</th></tr></thead><tbody></tbody>
           </table>
         </div>
       </div>
@@ -120,7 +134,7 @@
         <div class="col-lg-6">
           <div class="glass panel">
             <h3 style="font-size:1.05rem">Seed Reference Data</h3>
-            <p class="text-dim">Import the five districts, all EMS stations, starter vehicles and the 466 Gauteng healthcare facilities into Firestore. Safe to run more than once.</p>
+            <p class="text-dim">Import the five districts, all EMS stations, the full G-Set vehicle fleet and the 466 Gauteng healthcare facilities into Firestore. Safe to run more than once.</p>
             <button class="btn btn-ems" id="seedBtn"><i class="fa-solid fa-cloud-arrow-up me-1"></i>Run Import</button>
             <pre id="seedLog" class="mono mt-3 p-3" style="background:rgba(6,11,28,.6);border-radius:10px;max-height:220px;overflow:auto;font-size:.8rem;color:var(--cyan-400)"></pre>
           </div>

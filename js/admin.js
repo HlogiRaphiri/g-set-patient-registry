@@ -12,8 +12,8 @@
 import { firebaseConfig, db, auth, COL, ROLE_LIST, ROLES } from "./firebase-config.js";
 import { requireAuth, esc, toast, writeAudit, fmtStamp, confirmDialog } from "./app.js";
 import { renderShell } from "./layout.js";
-import { getDistricts, getFacilities, getVehicles, invalidate } from "./data-service.js";
-import { seedAll, collectionCount } from "./seed.js";
+import { getDistricts, getStations, getFacilities, getVehicles, invalidate } from "./data-service.js";
+import { seedAll, seedVehicles, collectionCount } from "./seed.js";
 
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
@@ -23,18 +23,25 @@ import {
   collection, getDocs, doc, setDoc, updateDoc, addDoc, query, orderBy, limit, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-let usersTable, facTable, vehTable, auditTable, districts = [];
+let usersTable, facTable, vehTable, auditTable, districts = [], stations = [];
 
 (async () => {
   const { profile } = await requireAuth("adminSetup");
   await renderShell("admin", profile);
   document.getElementById("pageContent").appendChild(document.getElementById("pageTpl").content.cloneNode(true));
 
-  districts = await getDistricts();
+  [districts, stations] = await Promise.all([getDistricts(), getStations()]);
 
   // Tabs.
   document.querySelectorAll("#adminTabs [data-tab]").forEach((b) =>
     b.addEventListener("click", () => switchTab(b.dataset.tab)));
+
+  // Respond to the sidebar "Audit Logs" link. Because that link is admin.html#audit,
+  // clicking it while ALREADY on this page only changes the hash (no reload), so we
+  // must react to hashchange as well as the initial load.
+  window.addEventListener("hashchange", () => {
+    if (location.hash === "#audit") switchTab("audit");
+  });
   if (location.hash === "#audit") switchTab("audit");
 
   fillRoleAndDistricts();
@@ -202,21 +209,62 @@ async function loadFacilities(force) {
 
 /* --------------------------------------------------------------- Vehicles */
 function wireVehicles() {
+  // District → EMS-station cascade on the add-vehicle form.
+  const dSel = document.getElementById("avDistrict");
+  const sSel = document.getElementById("avStation");
+  if (dSel && sSel) {
+    dSel.addEventListener("change", () => {
+      const list = stations.filter((s) => s.district === dSel.value).map((s) => s.name).sort();
+      sSel.innerHTML = `<option value="">Select station…</option>` + list.map((n) => `<option>${esc(n)}</option>`).join("");
+    });
+  }
+
+  // Manual add — Superuser adds a single vehicle. Registration is stored UPPERCASE.
   document.getElementById("addVehicleForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const reg = document.getElementById("avReg").value.trim();
+    const reg = document.getElementById("avReg").value.trim().toUpperCase();
     const district = document.getElementById("avDistrict").value;
+    const station = sSel ? sSel.value : "";
     const type = document.getElementById("avType").value;
     if (!reg || !district) { toast("err", "Missing details", "Registration and district are required."); return; }
     try {
-      await setDoc(doc(db, COL.vehicles, reg.toLowerCase().replace(/[^a-z0-9]+/g, "-")), { registration: reg, district, type }, { merge: true });
+      await setDoc(
+        doc(db, COL.vehicles, reg.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")),
+        { registration: reg, district, station, type, keywords: reg.toLowerCase() },
+        { merge: true }
+      );
       await writeAudit("Vehicle Added", { registration: reg });
       invalidate(COL.vehicles);
       toast("ok", "Vehicle added", reg);
       document.getElementById("addVehicleForm").reset();
+      if (sSel) sSel.innerHTML = `<option value="">Select district first…</option>`;
       loadVehicles(true);
     } catch { toast("err", "Failed to add vehicle"); }
   });
+
+  // Bulk import of the full G-Set fleet from data/vehicles.json.
+  const importBtn = document.getElementById("importVehiclesBtn");
+  if (importBtn) {
+    importBtn.addEventListener("click", async () => {
+      const log = document.getElementById("vehImportLog");
+      importBtn.disabled = true;
+      if (log) log.textContent = "";
+      const append = (m) => { if (log) { log.textContent += m + "\n"; log.scrollTop = log.scrollHeight; } };
+      try {
+        append("Importing G-Set fleet…");
+        const n = await seedVehicles(append);
+        invalidate(COL.vehicles);
+        await writeAudit("Vehicles Imported", { count: n });
+        toast("ok", "Fleet imported", `${n} vehicles are now available.`);
+        loadVehicles(true);
+      } catch (err) {
+        append("✗ " + err.message);
+        toast("err", "Import failed", err.message);
+      } finally {
+        importBtn.disabled = false;
+      }
+    });
+  }
 }
 
 async function loadVehicles(force) {
@@ -224,25 +272,31 @@ async function loadVehicles(force) {
   const vs = await getVehicles();
   if (vehTable) vehTable.destroy();
   document.querySelector("#vehTable tbody").innerHTML = vs.map((v) =>
-    `<tr><td class="mono">${esc(v.registration)}</td><td>${esc(v.district)}</td><td>${esc(v.type || "")}</td></tr>`).join("");
+    `<tr><td class="mono">${esc(v.registration)}</td><td>${esc(v.district)}</td><td>${esc(v.station || "")}</td><td>${esc(v.type || "")}</td></tr>`).join("");
   vehTable = $("#vehTable").DataTable({ pageLength: 15, order: [[0, "asc"]], language: { search: "", searchPlaceholder: "Search vehicles…" } });
 }
 
 /* ------------------------------------------------------------------ Audit */
 async function loadAudit() {
-  const snap = await getDocs(query(collection(db, COL.audit), orderBy("at", "desc"), limit(500)));
-  const rows = snap.docs.map((d) => d.data());
-  document.getElementById("auditCount").textContent = `${rows.length} recent events`;
-  if (auditTable) auditTable.destroy();
-  document.querySelector("#auditTable tbody").innerHTML = rows.map((a) => `
-    <tr>
-      <td class="mono" style="font-size:.82rem">${fmtStamp(a.at)}</td>
-      <td><span class="status-pill status-active">${esc(a.action)}</span></td>
-      <td>${esc(a.actorName || "")}</td>
-      <td>${esc(a.actorRole || "")}</td>
-      <td class="text-dim" style="font-size:.82rem">${esc(JSON.stringify(a.details || {}))}</td>
-    </tr>`).join("");
-  auditTable = $("#auditTable").DataTable({ pageLength: 25, order: [], language: { search: "", searchPlaceholder: "Search audit trail…" } });
+  const countEl = document.getElementById("auditCount");
+  try {
+    const snap = await getDocs(query(collection(db, COL.audit), orderBy("at", "desc"), limit(500)));
+    const rows = snap.docs.map((d) => d.data());
+    if (countEl) countEl.textContent = `${rows.length} recent events`;
+    if (auditTable) auditTable.destroy();
+    document.querySelector("#auditTable tbody").innerHTML = rows.map((a) => `
+      <tr>
+        <td class="mono" style="font-size:.82rem">${fmtStamp(a.at)}</td>
+        <td><span class="status-pill status-active">${esc(a.action)}</span></td>
+        <td>${esc(a.actorName || "")}</td>
+        <td>${esc(a.actorRole || "")}</td>
+        <td class="text-dim" style="font-size:.82rem">${esc(JSON.stringify(a.details || {}))}</td>
+      </tr>`).join("");
+    auditTable = $("#auditTable").DataTable({ pageLength: 25, order: [], language: { search: "", searchPlaceholder: "Search audit trail…" } });
+  } catch (err) {
+    if (countEl) countEl.textContent = "Couldn’t load audit trail";
+    toast("err", "Audit unavailable", err.message || "Only the Superuser can read audit logs.");
+  }
 }
 
 /* ------------------------------------------------------------------ Setup */

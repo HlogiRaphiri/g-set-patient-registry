@@ -78,7 +78,7 @@ function bindUppercase(input) {
   // registration is fully supported; the user is not limited to preset vehicles.
   attachAutocomplete($("vehicle"), vehicles, {
     toText: (v) => v.registration,
-    toSub: (v) => `${v.type} · ${v.district}`,
+    toSub: (v) => [v.station, v.district].filter(Boolean).join(" · "),
   });
 
   // Standardise all free-text fields to uppercase.

@@ -11,7 +11,7 @@
 
 import { requireAuth, can, applyCapVisibility, fmtStamp, esc, toast, writeAudit } from "./app.js";
 import { renderShell } from "./layout.js";
-import { getAllPatients, closeJourney, updateVehicleRegistration } from "./data-service.js";
+import { getAllPatients, closeJourney, updateVehicleRegistration, getVehicles } from "./data-service.js";
 import { refreshSnapshot } from "./metrics.js";
 
 let table, allRows = [], currentTab = "active", canClose = false, canEditVehicle = false, profileRef;
@@ -58,6 +58,17 @@ let table, allRows = [], currentTab = "active", canClose = false, canEditVehicle
 
   document.getElementById("confirmClose").addEventListener("click", doClose);
   document.getElementById("confirmVehicle").addEventListener("click", doVehicleSave);
+
+  // Offer the imported G-Set fleet as pick-list suggestions (manual entry still allowed).
+  try {
+    const vehicles = await getVehicles();
+    const dl = document.getElementById("vehicleOptions");
+    if (dl) {
+      dl.innerHTML = vehicles
+        .map((v) => `<option value="${esc(v.registration)}">${esc([v.station, v.district].filter(Boolean).join(" · "))}</option>`)
+        .join("");
+    }
+  } catch (_) { /* suggestions are optional */ }
 
   // Keep the vehicle-edit field uppercase as it is typed.
   const vehInput = document.getElementById("vehicleReg");

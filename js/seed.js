@@ -1,14 +1,15 @@
 /**
  * seed.js — one-time (idempotent) population of reference collections.
  * Invoked by the Superuser from Admin > System Setup. Uses batched writes so
- * the 466-facility import stays within Firestore limits (500 ops per batch).
+ * large imports (facilities, the G-Set vehicle fleet) stay within Firestore
+ * limits (500 ops per batch).
  */
 
 import { db, COL } from "./firebase-config.js";
 import {
   doc, setDoc, writeBatch, getCountFromServer, collection,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { DISTRICTS, EMS_STATIONS, SAMPLE_VEHICLES } from "./data/seed-data.js";
+import { DISTRICTS, EMS_STATIONS } from "./data/seed-data.js";
 
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
@@ -26,11 +27,32 @@ export async function seedStations(onLog = () => {}) {
   onLog(`✓ ${EMS_STATIONS.length} EMS stations`);
 }
 
+/**
+ * Import the real G-Set vehicle fleet from data/vehicles.json, keyed by a slug
+ * of the registration. Each vehicle stores its registration, district and EMS
+ * station. Merge:true keeps re-runs safe. Returns the number imported.
+ */
 export async function seedVehicles(onLog = () => {}) {
-  for (const v of SAMPLE_VEHICLES) {
-    await setDoc(doc(db, COL.vehicles, slug(v.registration)), v, { merge: true });
+  const res = await fetch("data/vehicles.json");
+  if (!res.ok) throw new Error("Couldn’t load data/vehicles.json");
+  const vehicles = await res.json();
+
+  let batch = writeBatch(db), n = 0, written = 0;
+  for (const v of vehicles) {
+    const reg = String(v.registration || "").trim().toUpperCase();
+    if (!reg) continue;
+    batch.set(doc(db, COL.vehicles, slug(reg)), {
+      registration: reg,
+      district: v.district || "",
+      station: v.station || "",
+      keywords: reg.toLowerCase(),
+    }, { merge: true });
+    n++; written++;
+    if (n === 450) { await batch.commit(); onLog(`  …${written}/${vehicles.length} vehicles`); batch = writeBatch(db); n = 0; }
   }
-  onLog(`✓ ${SAMPLE_VEHICLES.length} starter vehicles`);
+  if (n) await batch.commit();
+  onLog(`✓ ${written} G-Set vehicles imported`);
+  return written;
 }
 
 /**
