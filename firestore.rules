@@ -3,8 +3,9 @@ rules_version = '2';
 // =============================================================================
 // G-Set Patient Registry — Firestore security rules
 // Mirrors the client-side capability matrix in firebase-config.js and enforces
-// it server-side. Closed journeys are immutable. Only the Superuser manages
-// reference data and reads the audit trail.
+// it server-side. Once captured, a journey record is locked: the ONLY permitted
+// changes are (a) closing an open journey, and (b) correcting the G-Set vehicle
+// registration. Records are never deleted.
 // =============================================================================
 
 service cloud.firestore {
@@ -25,13 +26,33 @@ service cloud.firestore {
         (role() == 'Superuser' || role() == 'ECC Personnel');
     }
 
+    // The set of top-level keys that this update adds, removes, or changes.
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // (a) A valid close transition: an open journey becomes closed, and ONLY the
+    // close-related fields may change. The record's substantive data is untouched.
+    function isCloseTransition() {
+      return resource.data.closed == false
+        && request.resource.data.closed == true
+        && request.resource.data.status == 'Closed'
+        && changedKeys().hasOnly(['closed', 'status', 'timeDelivered', 'closedBy', 'closedAt']);
+    }
+
+    // (b) A vehicle-registration correction: ONLY the vehicle field (plus its two
+    // audit fields) may change, and the new value must be a non-empty string.
+    function isVehicleEditOnly() {
+      return changedKeys().hasOnly(['vehicle', 'vehicleUpdatedAt', 'vehicleUpdatedBy'])
+        && request.resource.data.vehicle is string
+        && request.resource.data.vehicle.size() > 0;
+    }
+
     // ---- users -------------------------------------------------------------
     // A user may read their own profile; the Superuser may read/write all.
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isSuperuser());
       allow create, update, delete: if isSuperuser();
-      // Allow a user to create their own profile only if it matches an existing
-      // Superuser bootstrap is done via console; normal creation is Superuser-only.
     }
 
     // ---- patients ----------------------------------------------------------
@@ -43,14 +64,14 @@ service cloud.firestore {
         && request.resource.data.closed == false
         && request.resource.data.status == 'Active';
 
-      // Update is only permitted to CLOSE an open journey — never to edit a
-      // closed one. Once closed == true the record is permanently locked.
-      allow update: if canCapture()
-        && resource.data.closed == false
-        && request.resource.data.closed == true
-        && request.resource.data.status == 'Closed';
+      // After capture the record is locked. Only two updates are ever allowed:
+      //   (a) closing an open journey, or
+      //   (b) correcting ONLY the G-Set vehicle registration.
+      // Every other field is immutable — including on already-closed records.
+      allow update: if canCapture() && (isCloseTransition() || isVehicleEditOnly());
 
-      allow delete: if false; // records are never deleted
+      // Records are never deleted, by anyone, through the rules.
+      allow delete: if false;
     }
 
     // ---- reference data (Superuser writes, everyone signed-in reads) --------
@@ -61,8 +82,6 @@ service cloud.firestore {
     match /meta/{id}          { allow read: if signedIn(); allow write: if isSuperuser(); }
 
     // ---- incident-number counters -----------------------------------------
-    // Any capture-capable user increments the per-day counter inside a
-    // transaction. No deletes.
     match /counters/{id} {
       allow read: if signedIn();
       allow create, update: if canCapture();
@@ -70,20 +89,12 @@ service cloud.firestore {
     }
 
     // ---- public executive dashboard snapshot -------------------------------
-    // This single document holds ONLY aggregate operations data (counts,
-    // averages, top facilities/stations/vehicles by volume, district totals,
-    // trend arrays, alert counts). It contains NO patient-identifying data, so
-    // it is the one place readable WITHOUT authentication — powering the public
-    // command-centre view. Writes are restricted to signed-in, active staff,
-    // who regenerate it from the private patient collection.
     match /dashboardMetrics/{id} {
       allow read: if true;
       allow write: if signedIn() && notDisabled();
     }
 
     // ---- audit logs --------------------------------------------------------
-    // Append-only. Any signed-in user may write their own entries; only the
-    // Superuser can read. Entries can never be edited or removed.
     match /auditLogs/{id} {
       allow create: if signedIn() && request.resource.data.actorUid == request.auth.uid;
       allow read: if isSuperuser();

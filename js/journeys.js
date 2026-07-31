@@ -3,19 +3,26 @@
  * and close an active journey by capturing its delivery time. Closing writes
  * the delivery timestamp, flips status to Closed and permanently locks the
  * record. Only roles with the closeJourney capability see the close action.
+ *
+ * Captured records are otherwise immutable — the ONE exception is the G-Set
+ * vehicle registration, which capture-capable staff (Superuser / ECC) may
+ * correct at any time via the Edit-vehicle action. Records can never be deleted.
  */
 
 import { requireAuth, can, applyCapVisibility, fmtStamp, esc, toast, writeAudit } from "./app.js";
 import { renderShell } from "./layout.js";
-import { getAllPatients, closeJourney } from "./data-service.js";
+import { getAllPatients, closeJourney, updateVehicleRegistration } from "./data-service.js";
 import { refreshSnapshot } from "./metrics.js";
 
-let table, allRows = [], currentTab = "active", canClose = false, profileRef;
+let table, allRows = [], currentTab = "active", canClose = false, canEditVehicle = false, profileRef;
 
 (async () => {
   const { profile } = await requireAuth("viewDashboard");
   profileRef = profile;
   canClose = can(profile, "closeJourney");
+  // The vehicle registration is the only editable field post-capture; gate it
+  // to capture-capable staff (Superuser / ECC), matching canCapture() in rules.
+  canEditVehicle = can(profile, "capturePatient");
   await renderShell("journeys", profile);
 
   const content = document.getElementById("pageContent");
@@ -41,13 +48,26 @@ let table, allRows = [], currentTab = "active", canClose = false, profileRef;
 
   document.getElementById("quickSearch").addEventListener("input", (e) => table.search(e.target.value).draw());
 
-  // Wire close action (event delegation on the table body).
+  // Wire row actions (event delegation on the table body).
   document.querySelector("#journeyTable tbody").addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-close]");
-    if (btn) openCloseModal(btn.dataset.close);
+    const closeBtn = e.target.closest("[data-close]");
+    if (closeBtn) { openCloseModal(closeBtn.dataset.close); return; }
+    const editBtn = e.target.closest("[data-editveh]");
+    if (editBtn) { openVehicleModal(editBtn.dataset.editveh); return; }
   });
 
   document.getElementById("confirmClose").addEventListener("click", doClose);
+  document.getElementById("confirmVehicle").addEventListener("click", doVehicleSave);
+
+  // Keep the vehicle-edit field uppercase as it is typed.
+  const vehInput = document.getElementById("vehicleReg");
+  if (vehInput) {
+    vehInput.addEventListener("input", () => {
+      const s = vehInput.selectionStart, en = vehInput.selectionEnd;
+      const u = vehInput.value.toUpperCase();
+      if (u !== vehInput.value) { vehInput.value = u; try { vehInput.setSelectionRange(s, en); } catch (_) {} }
+    });
+  }
 
   paint();
 })();
@@ -59,11 +79,22 @@ function paint() {
     const status = r.closed
       ? `<span class="status-pill status-closed">Closed</span>`
       : `<span class="status-pill status-active">Active</span>`;
-    const action = (!r.closed && canClose)
-      ? `<button class="btn btn-ems btn-sm" data-close="${r.id}"><i class="fa-solid fa-lock me-1"></i>Close</button>`
-      : r.closed
-        ? `<span class="text-faint" title="Delivered ${fmtStamp(r.timeDelivered)}"><i class="fa-solid fa-lock"></i></span>`
-        : `<span class="text-faint">—</span>`;
+
+    // Build the action cell: lock/close indicator plus an optional Edit-vehicle button.
+    const parts = [];
+    if (!r.closed && canClose) {
+      parts.push(`<button class="btn btn-ems btn-sm" data-close="${r.id}"><i class="fa-solid fa-lock me-1"></i>Close</button>`);
+    }
+    if (r.closed) {
+      parts.push(`<span class="text-faint" title="Delivered ${esc(fmtStamp(r.timeDelivered))}"><i class="fa-solid fa-lock"></i></span>`);
+    }
+    if (canEditVehicle) {
+      parts.push(`<button class="btn btn-ghost btn-sm" data-editveh="${r.id}" title="Edit G-Set vehicle registration"><i class="fa-solid fa-truck-medical"></i></button>`);
+    }
+    const action = parts.length
+      ? `<div class="d-flex gap-1 justify-content-end align-items-center">${parts.join("")}</div>`
+      : `<span class="text-faint">—</span>`;
+
     table.row.add([
       `<span class="mono text-ems">${esc(r.incidentNumber)}</span>`,
       `${esc(r.patientName)}<br><small class="text-faint">${esc(r.gender || "")}${r.age != null ? " · " + r.age : ""}</small>`,
@@ -78,6 +109,8 @@ function paint() {
   });
   table.draw();
 }
+
+/* ------------------------------------------------------------- Close flow */
 
 let pendingId = null;
 function openCloseModal(id) {
@@ -112,5 +145,47 @@ async function doClose() {
     btn.disabled = false;
     btn.innerHTML = `<i class="fa-solid fa-lock me-1"></i> Close & Lock`;
     pendingId = null;
+  }
+}
+
+/* ---------------------------------------------------- Edit vehicle flow */
+
+let pendingVehId = null;
+function openVehicleModal(id) {
+  const r = allRows.find((x) => x.id === id);
+  if (!r) return;
+  pendingVehId = id;
+  document.getElementById("vmIncident").textContent = r.incidentNumber;
+  document.getElementById("vmPatient").textContent = `${r.patientName} · ${r.diagnosis || ""}`;
+  const input = document.getElementById("vehicleReg");
+  input.value = (r.vehicle || "").toUpperCase();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById("vehicleModal")).show();
+  setTimeout(() => input.focus(), 250);
+}
+
+async function doVehicleSave() {
+  if (!pendingVehId) return;
+  const input = document.getElementById("vehicleReg");
+  const reg = input.value.trim().toUpperCase();
+  if (!reg) { toast("err", "Registration required", "Enter a G-Set vehicle registration."); return; }
+
+  const btn = document.getElementById("confirmVehicle");
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Saving…`;
+  try {
+    const saved = await updateVehicleRegistration(pendingVehId, reg, profileRef.name);
+    const r = allRows.find((x) => x.id === pendingVehId);
+    if (r) r.vehicle = saved;
+    await writeAudit("Vehicle Updated", { incidentNumber: r?.incidentNumber, vehicle: saved });
+    refreshSnapshot().catch(() => {});
+    toast("ok", "Vehicle updated", `${r?.incidentNumber} → ${saved}`);
+    bootstrap.Modal.getInstance(document.getElementById("vehicleModal")).hide();
+    paint();
+  } catch (err) {
+    toast("err", "Update failed", err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<i class="fa-solid fa-floppy-disk me-1"></i> Save Registration`;
+    pendingVehId = null;
   }
 }

@@ -4,12 +4,33 @@
  * district→station cascade, validates, then opens an Active journey.
  * ECC personnel can capture several patients back-to-back; the form resets
  * and issues a fresh incident number after each save.
+ *
+ * All free-text entry (facility names, vehicle registration, patient name,
+ * diagnosis) is standardised to UPPERCASE — visually as the user types and
+ * again at write time so storage is always uppercase.
  */
 
 import { requireAuth, nextIncidentNumber, writeAudit, toast, fmtYMD } from "./app.js";
 import { renderShell } from "./layout.js";
 import { getFacilities, getStations, getDistricts, getVehicles, attachAutocomplete, createPatient } from "./data-service.js";
 import { refreshSnapshot } from "./metrics.js";
+
+/** Normalise any entered string to trimmed UPPERCASE. */
+const up = (s) => String(s ?? "").trim().toUpperCase();
+
+/** Force an input to display and hold uppercase text as the user types. */
+function bindUppercase(input) {
+  if (!input) return;
+  input.style.textTransform = "uppercase"; // instant visual feedback (also covers autocomplete picks)
+  input.addEventListener("input", () => {
+    const start = input.selectionStart, end = input.selectionEnd;
+    const upper = input.value.toUpperCase();
+    if (upper !== input.value) {
+      input.value = upper;
+      try { input.setSelectionRange(start, end); } catch (_) {}
+    }
+  });
+}
 
 (async () => {
   const { user, profile } = await requireAuth("capturePatient");
@@ -53,11 +74,15 @@ import { refreshSnapshot } from "./metrics.js";
   attachAutocomplete($("referringFacility"), facilities, facOpts);
   attachAutocomplete($("receivingFacility"), facilities, facOpts);
 
-  // Vehicle autocomplete.
+  // Vehicle autocomplete — suggestions only. Manual entry of any G-Set
+  // registration is fully supported; the user is not limited to preset vehicles.
   attachAutocomplete($("vehicle"), vehicles, {
     toText: (v) => v.registration,
     toSub: (v) => `${v.type} · ${v.district}`,
   });
+
+  // Standardise all free-text fields to uppercase.
+  ["referringFacility", "receivingFacility", "vehicle", "patientName", "diagnosis"].forEach((id) => bindUppercase($(id)));
 
   // Issue an incident number for the chosen date.
   const issueIncident = async () => {
@@ -73,6 +98,14 @@ import { refreshSnapshot } from "./metrics.js";
   await issueIncident();
   $("incidentDate").addEventListener("change", issueIncident);
 
+  // Look up a facility by name, case-insensitively, so uppercase entry still
+  // resolves the stored (mixed-case) facility to pull its coordinates/district.
+  const facilityByName = (name) => {
+    const key = String(name ?? "").trim().toLowerCase();
+    if (!key) return null;
+    return facilities.find((f) => String(f.name ?? "").toLowerCase() === key) || null;
+  };
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!form.checkValidity()) { form.reportValidity(); return; }
@@ -81,25 +114,26 @@ import { refreshSnapshot } from "./metrics.js";
     btn.disabled = true;
     btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Saving…`;
 
-    const facility = (name) => facilities.find((f) => f.name === name) || null;
-    const ref = facility($("referringFacility").value.trim());
-    const rec = facility($("receivingFacility").value.trim());
+    const refName = $("referringFacility").value.trim();
+    const recName = $("receivingFacility").value.trim();
+    const ref = facilityByName(refName);
+    const rec = facilityByName(recName);
 
     const payload = {
       incidentNumber: $("incidentNumber").value,
       date: $("incidentDate").value,
-      referringFacility: $("referringFacility").value.trim(),
-      referringDistrict: ref?.district || "",
-      referringLat: ref?.lat || null, referringLng: ref?.lng || null,
-      receivingFacility: $("receivingFacility").value.trim(),
-      receivingLat: rec?.lat || null, receivingLng: rec?.lng || null,
+      referringFacility: up(refName),
+      referringDistrict: up(ref?.district || ""),
+      referringLat: ref?.lat ?? null, referringLng: ref?.lng ?? null,
+      receivingFacility: up(recName),
+      receivingLat: rec?.lat ?? null, receivingLng: rec?.lng ?? null,
       district: $("district").value,
       station: $("station").value,
-      vehicle: $("vehicle").value.trim(),
-      patientName: $("patientName").value.trim(),
+      vehicle: up($("vehicle").value),
+      patientName: up($("patientName").value),
       age: Number($("age").value),
       gender: $("gender").value,
-      diagnosis: $("diagnosis").value.trim(),
+      diagnosis: up($("diagnosis").value),
       capturedByUid: user.uid,
       capturedByName: profile.name,
     };

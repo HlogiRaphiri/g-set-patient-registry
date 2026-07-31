@@ -61,6 +61,26 @@ export async function closeJourney(id, actor) {
   });
 }
 
+/**
+ * Update ONLY the G-Set vehicle registration on a captured record.
+ * This is the single field that remains editable after a journey is saved.
+ * The value is normalised to trimmed UPPERCASE before storage. Writing only
+ * these three keys keeps the update within what firestore.rules permits.
+ */
+export async function updateVehicleRegistration(id, vehicle, actorName) {
+  const reg = String(vehicle ?? "").trim().toUpperCase();
+  if (!reg) throw new Error("Vehicle registration cannot be empty.");
+  const ref = doc(db, COL.patients, id);
+  const cur = await getDoc(ref);
+  if (!cur.exists()) throw new Error("Record not found.");
+  await updateDoc(ref, {
+    vehicle: reg,
+    vehicleUpdatedAt: serverTimestamp(),
+    vehicleUpdatedBy: actorName || "",
+  });
+  return reg;
+}
+
 export async function getAllPatients() {
   const snap = await getDocs(query(collection(db, COL.patients), orderBy("createdAt", "desc")));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));

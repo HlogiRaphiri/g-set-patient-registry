@@ -70,6 +70,31 @@
     </div>
   </div>
 
+  <!-- Edit G-Set vehicle registration modal -->
+  <div class="modal fade" id="vehicleModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content glass glass-strong" style="border:1px solid var(--glass-line)">
+        <div class="modal-header border-0">
+          <h5 class="modal-title">Edit G-Set Vehicle Registration</h5>
+          <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-dim mb-3">Update the G-Set vehicle registration for this journey. <strong class="text-ems">This is the only field that can be changed after a record is captured.</strong> Type the registration manually — you are not limited to preset vehicles.</p>
+          <div class="glass panel mb-3">
+            <div class="mono" id="vmIncident">—</div>
+            <div class="text-dim" id="vmPatient">—</div>
+          </div>
+          <label class="form-label" for="vehicleReg">G-Set Vehicle Registration</label>
+          <input class="form-control" id="vehicleReg" style="text-transform:uppercase" placeholder="e.g. GS-001-GP" autocomplete="off" />
+        </div>
+        <div class="modal-footer border-0">
+          <button class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-ems" id="confirmVehicle"><i class="fa-solid fa-floppy-disk me-1"></i> Save Registration</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <button class="fab" title="New capture" data-cap="capturePatient" onclick="location.href='capture.html'"><i class="fa-solid fa-plus"></i></button>
 
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
