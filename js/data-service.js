@@ -102,7 +102,7 @@ export async function getActivePatients() {
  * @param toSub        item => secondary line (optional)
  * @param onPick       item => void (optional)
  */
-export function attachAutocomplete(input, getItems, { toText, toSub, onPick } = {}) {
+export function attachAutocomplete(input, getItems, { toText, toSub, onPick, rank } = {}) {
   toText = toText || ((x) => x.name || String(x));
   const wrap = document.createElement("div");
   wrap.className = "autocomplete-wrap";
@@ -128,14 +128,36 @@ export function attachAutocomplete(input, getItems, { toText, toSub, onPick } = 
     activeIdx = -1;
   };
 
-  const filter = () => {
-    const q = input.value.trim().toLowerCase();
-    if (!q) { list.style.display = "none"; return; }
-    render(items.filter((m) => toText(m).toLowerCase().includes(q)));
+  // Optional relevance ranking: higher score floats to the top; nothing is removed.
+  const rankedSort = (arr) => {
+    if (!rank) return arr;
+    return arr
+      .map((m, i) => ({ m, r: rank(m) || 0, i }))
+      .sort((a, b) => (b.r - a.r) || (a.i - b.i))
+      .map((x) => x.m);
   };
 
+  // When a rank fn and context exist, show the relevant items even before typing.
+  const showRelevant = () => {
+    if (!rank) return false;
+    const relevant = rankedSort(items.filter((m) => (rank(m) || 0) > 0));
+    if (!relevant.length) return false;
+    render(relevant);
+    return true;
+  };
+
+  const filter = () => {
+    const q = input.value.trim().toLowerCase();
+    if (!q) { if (!showRelevant()) list.style.display = "none"; return; }
+    render(rankedSort(items.filter((m) => toText(m).toLowerCase().includes(q))));
+  };
+
+  // On focus, surface context-relevant items first (regardless of any pre-filled
+  // value); fall back to normal text filtering.
+  const onFocus = () => { if (!showRelevant()) filter(); };
+
   input.addEventListener("input", filter);
-  input.addEventListener("focus", filter);
+  input.addEventListener("focus", onFocus);
   input.addEventListener("blur", () => setTimeout(() => (list.style.display = "none"), 150));
   input.addEventListener("keydown", (e) => {
     const opts = list.querySelectorAll(".autocomplete-item");

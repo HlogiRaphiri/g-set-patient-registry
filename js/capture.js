@@ -18,6 +18,9 @@ import { refreshSnapshot } from "./metrics.js";
 /** Normalise any entered string to trimmed UPPERCASE. */
 const up = (s) => String(s ?? "").trim().toUpperCase();
 
+/** Normalise a station/district name for tolerant matching. */
+const norm = (s) => String(s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+
 /** Force an input to display and hold uppercase text as the user types. */
 function bindUppercase(input) {
   if (!input) return;
@@ -79,6 +82,15 @@ function bindUppercase(input) {
   attachAutocomplete($("vehicle"), vehicles, {
     toText: (v) => v.registration,
     toSub: (v) => [v.station, v.district].filter(Boolean).join(" · "),
+    // Station-first, then same-district, then everyone else — nothing is blocked.
+    rank: (v) => {
+      const selD = norm($("district").value);
+      const selS = norm($("station").value);
+      if (!selD && !selS) return 0;
+      if (selS && norm(v.station) && norm(v.station) === selS) return 3;
+      if (selD && norm(v.district) && norm(v.district) === selD) return 2;
+      return 0;
+    },
   });
 
   // Standardise all free-text fields to uppercase.

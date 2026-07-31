@@ -11,10 +11,13 @@
 
 import { requireAuth, can, applyCapVisibility, fmtStamp, esc, toast, writeAudit } from "./app.js";
 import { renderShell } from "./layout.js";
-import { getAllPatients, closeJourney, updateVehicleRegistration, getVehicles } from "./data-service.js";
+import { getAllPatients, closeJourney, updateVehicleRegistration, getVehicles, attachAutocomplete } from "./data-service.js";
 import { refreshSnapshot } from "./metrics.js";
 
-let table, allRows = [], currentTab = "active", canClose = false, canEditVehicle = false, profileRef;
+/** Normalise a station/district name for tolerant matching. */
+const norm = (s) => String(s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+
+let table, allRows = [], currentTab = "active", canClose = false, canEditVehicle = false, profileRef, editRow = null;
 
 (async () => {
   const { profile } = await requireAuth("viewDashboard");
@@ -59,19 +62,24 @@ let table, allRows = [], currentTab = "active", canClose = false, canEditVehicle
   document.getElementById("confirmClose").addEventListener("click", doClose);
   document.getElementById("confirmVehicle").addEventListener("click", doVehicleSave);
 
-  // Offer the imported G-Set fleet as pick-list suggestions (manual entry still allowed).
-  try {
-    const vehicles = await getVehicles();
-    const dl = document.getElementById("vehicleOptions");
-    if (dl) {
-      dl.innerHTML = vehicles
-        .map((v) => `<option value="${esc(v.registration)}">${esc([v.station, v.district].filter(Boolean).join(" · "))}</option>`)
-        .join("");
-    }
-  } catch (_) { /* suggestions are optional */ }
-
-  // Keep the vehicle-edit field uppercase as it is typed.
+  // Vehicle pick-list for the edit modal: suggestions ranked by the record's own
+  // station then district (station-first), everything else still selectable, and
+  // manual entry always allowed.
   const vehInput = document.getElementById("vehicleReg");
+  if (vehInput) {
+    attachAutocomplete(vehInput, getVehicles, {
+      toText: (v) => v.registration,
+      toSub: (v) => [v.station, v.district].filter(Boolean).join(" · "),
+      rank: (v) => {
+        if (!editRow) return 0;
+        const recS = norm(editRow.station);
+        const recD = norm(editRow.district);
+        if (recS && norm(v.station) && norm(v.station) === recS) return 3;
+        if (recD && norm(v.district) && norm(v.district) === recD) return 2;
+        return 0;
+      },
+    });
+  }
   if (vehInput) {
     vehInput.addEventListener("input", () => {
       const s = vehInput.selectionStart, en = vehInput.selectionEnd;
@@ -166,6 +174,7 @@ function openVehicleModal(id) {
   const r = allRows.find((x) => x.id === id);
   if (!r) return;
   pendingVehId = id;
+  editRow = r; // drives station-first ranking of the vehicle suggestions
   document.getElementById("vmIncident").textContent = r.incidentNumber;
   document.getElementById("vmPatient").textContent = `${r.patientName} · ${r.diagnosis || ""}`;
   const input = document.getElementById("vehicleReg");
