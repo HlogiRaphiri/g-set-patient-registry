@@ -177,6 +177,64 @@
       <div id="routeMapEmpty" class="text-faint text-center" style="display:none;padding:40px">No geocoded routes in this window yet.</div>
     </section>
 
+    <!-- ===== AI Assistant (embedded) ===== -->
+    <style>
+      #ga-panel .ga-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+      #ga-panel .ga-badge{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#ff7a1a,#c23b00);display:grid;place-items:center;font-weight:800;color:#fff}
+      #ga-panel .ga-chat{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:12px;max-height:340px;min-height:110px;overflow:auto}
+      #ga-panel .ga-msg{display:flex;gap:9px;margin:10px 0;align-items:flex-start}
+      #ga-panel .ga-who{width:28px;height:28px;border-radius:7px;flex:0 0 auto;display:grid;place-items:center;font-size:.68rem;font-weight:700}
+      #ga-panel .ga-user .ga-who{background:#25324d;color:#22d3ee}
+      #ga-panel .ga-bot .ga-who{background:linear-gradient(135deg,#ff7a1a,#c23b00);color:#fff}
+      #ga-panel .ga-bubble{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);border-radius:11px;padding:9px 12px;font-size:.9rem;line-height:1.5}
+      #ga-panel .ga-user .ga-bubble{background:rgba(34,211,238,.06)}
+      #ga-panel .ga-bars{margin-top:9px;display:grid;gap:5px}
+      #ga-panel .ga-bar-row{display:grid;grid-template-columns:130px 1fr 44px;align-items:center;gap:8px;font-size:.78rem}
+      #ga-panel .ga-track{background:rgba(255,255,255,.06);border-radius:6px;height:15px;overflow:hidden}
+      #ga-panel .ga-fill{height:100%;background:linear-gradient(90deg,#ff7a1a,#ffb066);border-radius:6px}
+      #ga-panel .ga-val{text-align:right;color:#9fb0c8}
+      #ga-panel .ga-spark{display:flex;align-items:flex-end;gap:4px;height:48px;margin-top:9px}
+      #ga-panel .ga-spark div{flex:1;background:linear-gradient(180deg,#22d3ee,#0e7490);border-radius:3px 3px 0 0;min-height:3px}
+      #ga-panel .ga-dots span{display:inline-block;width:6px;height:6px;margin:0 2px;border-radius:50%;background:#ffb066;animation:ga-b 1s infinite}
+      #ga-panel .ga-dots span:nth-child(2){animation-delay:.15s}#ga-panel .ga-dots span:nth-child(3){animation-delay:.3s}
+      @keyframes ga-b{0%,80%,100%{opacity:.3}40%{opacity:1}}
+      #ga-panel .ga-chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+      #ga-panel .ga-chip{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);color:#9fb0c8;border-radius:999px;padding:5px 11px;font-size:.76rem;cursor:pointer}
+      #ga-panel .ga-chip:hover{border-color:#ff7a1a;color:#e8edf6}
+      #ga-panel .ga-composer{display:flex;gap:8px;margin-top:10px}
+      #ga-panel .ga-composer input{flex:1;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);border-radius:11px;padding:11px 13px;color:#e8edf6;font-size:.9rem;outline:none}
+      #ga-panel .ga-composer input:focus{border-color:#ff7a1a}
+      #ga-panel .ga-ic{width:44px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);border-radius:11px;color:#e8edf6;cursor:pointer;font-size:1rem}
+      #ga-panel .ga-ic.on{background:linear-gradient(135deg,#ff7a1a,#c23b00);border-color:transparent;color:#fff}
+      #ga-panel .ga-ic.live{background:#c0392b;border-color:transparent;color:#fff}
+      #ga-panel .ga-send{background:linear-gradient(135deg,#ff7a1a,#c23b00);border:none;color:#fff;border-radius:11px;padding:0 16px;font-weight:600;cursor:pointer}
+      #ga-panel .ga-stat{color:#ffb066;font-weight:700}
+    </style>
+    <section class="panel mb-3" id="ga-panel">
+      <div class="ga-head">
+        <div class="ga-badge">G</div>
+        <div style="flex:1">
+          <h3 class="mb-0">Ask the Assistant</h3>
+          <div class="sub">Aggregate insights · no patient data · voice enabled</div>
+        </div>
+        <button class="ga-ic" id="ga-gear" title="Voice settings">⚙️</button>
+      </div>
+      <div id="ga-settings" style="display:none;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:.8rem;color:#9fb0c8">
+        <label>Voice <select id="ga-voice" style="background:#101a30;color:#e8edf6;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:4px 8px"></select></label>
+        <label>Speed <input type="range" id="ga-rate" min="0.7" max="1.3" step="0.05" value="1"></label>
+        <button class="ga-ic" id="ga-test" style="width:auto;padding:0 12px;font-size:.8rem">▶ Test</button>
+      </div>
+      <div class="ga-chat" id="ga-chat"></div>
+      <div class="ga-chips" id="ga-chips"></div>
+      <div class="ga-composer">
+        <input id="ga-q" placeholder="Ask about districts, shifts, trends, facilities…" autocomplete="off" />
+        <button class="ga-ic" id="ga-mic" title="Speak">🎙️</button>
+        <button class="ga-ic" id="ga-speak" title="Read answers aloud">🔊</button>
+        <button class="ga-send" id="ga-send">Ask</button>
+      </div>
+    </section>
+    <!-- ===== /AI Assistant ===== -->
+
     <div class="cc-foot">
       <i class="fa-solid fa-shield-halved lock"></i>
       Aggregate operational data only — no patient-identifying information is shown on this public view.
@@ -187,5 +245,6 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script type="module" src="js/public-dashboard.js"></script>
+  <script type="module" src="js/assistant-widget.js"></script>
 </body>
 </html>
