@@ -95,14 +95,26 @@ export async function writeAudit(action, details = {}) {
 export async function nextIncidentNumber(date = new Date()) {
   const ymd = fmtYMD(date);
   const ref = doc(db, COL.counters, `incident-${ymd}`);
-  const seq = await runTransaction(db, async (tx) => {
-    const s = await tx.get(ref);
-    const current = s.exists() ? s.data().value : 0;
-    const next = current + 1;
-    tx.set(ref, { value: next, ymd }, { merge: true });
-    return next;
-  });
-  return `GS-${ymd}-${String(seq).padStart(6, "0")}`;
+  try {
+    // maxAttempts capped (default is 5). Retrying is useful for genuine write
+    // contention, but pointless — and harmful — when the backend is rate-limiting
+    // us, so we keep the burst small and then surface a clear error.
+    const seq = await runTransaction(db, async (tx) => {
+      const s = await tx.get(ref);
+      const current = s.exists() ? s.data().value : 0;
+      const next = current + 1;
+      tx.set(ref, { value: next, ymd }, { merge: true });
+      return next;
+    }, { maxAttempts: 3 });
+    return `GS-${ymd}-${String(seq).padStart(6, "0")}`;
+  } catch (err) {
+    if (err && err.code === "resource-exhausted") {
+      const e = new Error("Firestore daily free-tier quota reached. Incident numbers will resume after the quota resets (00:00 US Pacific), or after upgrading the project to the Blaze plan.");
+      e.code = "resource-exhausted";
+      throw e;
+    }
+    throw err;
+  }
 }
 
 /* ------------------------------------------------------------- Date & time */

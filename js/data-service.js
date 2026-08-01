@@ -7,19 +7,44 @@
 
 import { db, COL } from "./firebase-config.js";
 import {
-  collection, getDocs, query, where, orderBy, limit,
+  collection, getDocs, getDocsFromCache, query, where, orderBy, limit,
   doc, setDoc, getDoc, updateDoc, addDoc, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const cache = {};
+// Collections that must be re-read from the server on their next load (e.g.
+// straight after an admin add/import), bypassing the local cache once.
+const forceServer = new Set();
 
+const mapSnap = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+/**
+ * Load a (rarely-changing) reference collection. Served from the persistent
+ * local cache when available — costing zero billed reads — and only fetched
+ * from the server on first load, on a cache miss, or immediately after the
+ * collection has been invalidated by a write. Frequently-changing data
+ * (patients) uses getDocs directly and always reads from the server.
+ */
 async function loadCollection(name) {
   if (cache[name]) return cache[name];
-  const snap = await getDocs(collection(db, name));
-  cache[name] = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const col = collection(db, name);
+
+  if (!forceServer.has(name)) {
+    try {
+      const cached = await getDocsFromCache(col);
+      if (!cached.empty) { cache[name] = mapSnap(cached); return cache[name]; }
+    } catch (_) { /* nothing cached yet — fall through to the server */ }
+  }
+
+  const snap = await getDocs(col); // server read
+  forceServer.delete(name);
+  cache[name] = mapSnap(snap);
   return cache[name];
 }
-export function invalidate(name) { delete cache[name]; }
+
+// Drop the in-memory copy AND force the next load to refresh from the server,
+// so a just-written change is never masked by a stale cached copy.
+export function invalidate(name) { delete cache[name]; forceServer.add(name); }
 
 export const getFacilities = () => loadCollection(COL.facilities);
 export const getStations = () => loadCollection(COL.stations);

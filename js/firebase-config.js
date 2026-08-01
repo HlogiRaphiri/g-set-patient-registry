@@ -15,7 +15,9 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 //import { getStorage } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
@@ -42,7 +44,14 @@ export const SUPERUSER_EMAIL = "Mrraphiri@outlook.com";
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+// Persistent offline cache (IndexedDB). Serves reads from the local cache,
+// works offline, and — combined with the cache-first reference-data reads in
+// data-service.js — sharply reduces billed Firestore document reads. The
+// multi-tab manager lets several open tabs share one cache safely.
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});
 //export const storage = getStorage(app);
 export { serverTimestamp };
 

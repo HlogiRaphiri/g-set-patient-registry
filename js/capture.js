@@ -96,15 +96,25 @@ function bindUppercase(input) {
   // Standardise all free-text fields to uppercase.
   ["referringFacility", "receivingFacility", "vehicle", "patientName", "diagnosis"].forEach((id) => bindUppercase($(id)));
 
-  // Issue an incident number for the chosen date.
+  // Issue an incident number for the chosen date. Guarded so overlapping calls
+  // (e.g. rapid date changes) can't stack up and hammer a rate-limited backend.
+  let issuing = false;
   const issueIncident = async () => {
+    if (issuing) return;
+    issuing = true;
     $("incidentNumber").value = "generating…";
     const d = new Date($("incidentDate").value || Date.now());
     try {
       $("incidentNumber").value = await nextIncidentNumber(d);
     } catch (e) {
       $("incidentNumber").value = "";
-      toast("err", "Couldn’t generate number", "Check your connection and Firestore rules.");
+      if (e && e.code === "resource-exhausted") {
+        toast("err", "Daily quota reached", "The Firestore free-tier limit has been hit. Numbering resumes after the daily reset (00:00 US Pacific), or upgrade the project to Blaze.");
+      } else {
+        toast("err", "Couldn’t generate number", "Check your connection and Firestore rules.");
+      }
+    } finally {
+      issuing = false;
     }
   };
   await issueIncident();
