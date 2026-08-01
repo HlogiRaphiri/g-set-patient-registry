@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>G-Set Insights — Assistant</title>
+<link rel="icon" href="assets/logo.png" />
+<style>
+  :root{--bg:#0a1020;--panel:rgba(255,255,255,.04);--line:rgba(255,255,255,.10);--ems:#ff7a1a;--ems-soft:#ffb066;--cyan:#22d3ee;--txt:#e8edf6;--dim:#9fb0c8;--faint:#63748f;--good:#34d399}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',system-ui,Arial,sans-serif;background:radial-gradient(1200px 600px at 20% -10%,#16223f 0%,transparent 60%),radial-gradient(900px 500px at 100% 0%,#1a1330 0%,transparent 55%),var(--bg);color:var(--txt);min-height:100vh;padding:18px}
+  .wrap{max-width:760px;margin:0 auto}
+  .head{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+  .badge{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--ems),#c23b00);display:grid;place-items:center;font-weight:800;color:#fff;box-shadow:0 6px 18px rgba(255,90,0,.35)}
+  h1{font-size:1.15rem;margin:0}.sub{color:var(--dim);font-size:.82rem;margin:0}
+  .privacy{margin:10px 0 12px;font-size:.76rem;color:var(--dim);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+  .privacy b{color:var(--good)}
+  .banner{margin:0 0 12px;font-size:.78rem;border-radius:10px;padding:8px 12px;display:none}
+  .banner.warn{display:block;background:rgba(255,122,26,.08);border:1px solid rgba(255,122,26,.3);color:var(--ems-soft)}
+  .settings{display:none;gap:12px;flex-wrap:wrap;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:.8rem;color:var(--dim)}
+  .settings.show{display:flex}
+  .settings select,.settings input[type=range]{background:#101a30;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:5px 8px}
+  .chat{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;min-height:300px;max-height:50vh;overflow:auto}
+  .msg{display:flex;gap:10px;margin:12px 0;align-items:flex-start}
+  .msg .who{width:30px;height:30px;border-radius:8px;flex:0 0 auto;display:grid;place-items:center;font-size:.7rem;font-weight:700}
+  .user .who{background:#25324d;color:var(--cyan)}.bot .who{background:linear-gradient(135deg,var(--ems),#c23b00);color:#fff}
+  .bubble{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:12px;padding:10px 13px;font-size:.9rem;line-height:1.55}
+  .user .bubble{background:rgba(34,211,238,.06)}
+  .bars{margin-top:10px;display:grid;gap:6px}
+  .bar-row{display:grid;grid-template-columns:130px 1fr 46px;align-items:center;gap:8px;font-size:.8rem}
+  .bar-track{background:rgba(255,255,255,.06);border-radius:6px;height:16px;overflow:hidden}
+  .bar-fill{height:100%;background:linear-gradient(90deg,var(--ems),var(--ems-soft));border-radius:6px}
+  .bar-val{text-align:right;color:var(--dim);font-variant-numeric:tabular-nums}
+  .spark{display:flex;align-items:flex-end;gap:4px;height:54px;margin-top:10px}
+  .spark div{flex:1;background:linear-gradient(180deg,var(--cyan),#0e7490);border-radius:3px 3px 0 0;min-height:3px}
+  .dots span{display:inline-block;width:6px;height:6px;margin:0 2px;border-radius:50%;background:var(--ems-soft);animation:b 1s infinite}
+  .dots span:nth-child(2){animation-delay:.15s}.dots span:nth-child(3){animation-delay:.3s}
+  @keyframes b{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}
+  .chip{background:var(--panel);border:1px solid var(--line);color:var(--dim);border-radius:999px;padding:6px 12px;font-size:.78rem;cursor:pointer}
+  .chip:hover{border-color:var(--ems);color:var(--txt)}
+  .composer{display:flex;gap:8px;margin-top:12px}
+  .composer input{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;color:var(--txt);font-size:.9rem;outline:none}
+  .composer input:focus{border-color:var(--ems)}
+  button.icon{width:46px;border:1px solid var(--line);background:var(--panel);border-radius:12px;color:var(--txt);cursor:pointer;font-size:1.05rem}
+  button.icon:hover{border-color:var(--ems)}button.icon.on{background:linear-gradient(135deg,var(--ems),#c23b00);border-color:transparent;color:#fff}
+  button.icon.live{background:#c0392b;border-color:transparent;color:#fff;animation:pulse 1s infinite}
+  button.icon:disabled{opacity:.4;cursor:not-allowed}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(192,57,43,.6)}50%{box-shadow:0 0 0 6px rgba(192,57,43,0)}}
+  .send{background:linear-gradient(135deg,var(--ems),#c23b00);border:none;color:#fff;border-radius:12px;padding:0 18px;font-weight:600;cursor:pointer}.send:disabled{opacity:.5}
+  .foot{color:var(--faint);font-size:.72rem;margin-top:12px;text-align:center}
+  .stat{color:var(--ems-soft);font-weight:700}
+  a.back{color:var(--dim);text-decoration:none;font-size:.8rem;margin-left:auto}a.back:hover{color:var(--txt)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="badge">G</div>
+    <div><h1>G-Set Insights <span style="font-size:.7rem;color:var(--cyan);border:1px solid var(--line);padding:2px 7px;border-radius:999px;vertical-align:middle">AI · voice</span></h1>
+    <p class="sub">Ask about the operational data</p></div>
+    <a class="back" href="dashboard.html">← Dashboard</a>
+    <button class="icon" id="gear" title="Voice settings">⚙️</button>
+  </div>
+
+  <div class="settings" id="settings">
+    <label>Voice <select id="voiceSel"></select></label>
+    <label>Speed <input type="range" id="rate" min="0.7" max="1.3" step="0.05" value="1"></label>
+    <button class="icon" id="test" style="width:auto;padding:0 12px;font-size:.8rem">▶ Test</button>
+  </div>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="privacy"><b>Aggregate data only.</b> The assistant reasons over dashboard totals and trends — never patient names, ages or diagnoses, with small groups (&lt;5) suppressed. Chart figures come straight from the dashboard snapshot. <span id="voiceState"></span></div>
+
+  <div class="chat" id="chat"></div>
+  <div class="chips" id="chips"></div>
+
+  <div class="composer">
+    <input id="q" placeholder="Talk to it — follow-ups work: “and last week?”, “why?”…" autocomplete="off" />
+    <button class="icon" id="mic" title="Speak">🎙️</button>
+    <button class="icon" id="speak" title="Read answers aloud">🔊</button>
+    <button class="send" id="send">Ask</button>
+  </div>
+  <div class="foot" id="foot">Reading live snapshot…</div>
+</div>
+
+<script type="module">
+import { db } from "./js/firebase-config.js";
+import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+// ======= EDIT THIS: your deployed Cloudflare Worker URL =======
+const PROXY_URL = "https://gset-insights.gset.workers.dev";
+// ==============================================================
+
+// Fallback used only if the live snapshot can't be read.
+const SAMPLE = { updatedAt:null, currentShift:"—",
+  totals:{allTime:0,last30Days:0,today:0,active:0,closed:0}, momChangePct:0, avgTransferMinutes:0,
+  byDistrict:[], topReferring:[], topReceiving:[], topStations:[], routes:[], dailyTrend:[] };
+
+let DATA = SAMPLE;
+
+// ---- Read + map the real dashboardMetrics/public snapshot -------------------
+function mapSnapshot(s){
+  const all = (s.scopes && s.scopes.all) || s || {};
+  const d30 = (s.scopes && s.scopes.d30) || all;
+  const today = (s.scopes && s.scopes.today) || {};
+  const pick = (arr) => (Array.isArray(arr)?arr:[]).slice(0,5).map(x=>({name:x.name,count:x.count}));
+  return {
+    updatedAt: s.updatedAt || null,
+    currentShift: (s.shiftMeta && s.shiftMeta.currentLabel) || "—",
+    totals: {
+      allTime: all.totals?.total ?? 0, last30Days: d30.totals?.total ?? 0, today: today.totals?.total ?? 0,
+      active: all.totals?.active ?? 0, closed: all.totals?.closed ?? 0,
+    },
+    momChangePct: s.momChangePct ?? 0,
+    avgTransferMinutes: all.averages?.transferMinutes ?? 0,
+    byDistrict: (d30.byDistrict?.length?d30.byDistrict:all.byDistrict||[]).map(x=>({name:x.name,count:x.count})),
+    topReferring: pick(d30.topReferring?.length?d30.topReferring:all.topReferring),
+    topReceiving: pick(d30.topReceiving?.length?d30.topReceiving:all.topReceiving),
+    topStations: pick(d30.topStations?.length?d30.topStations:all.topStations),
+    routes: (d30.routes?.length?d30.routes:all.routes||[]).slice(0,6),
+    dailyTrend: (s.daily||[]).slice(-7).map(d=>({day:d.label||d.key, count:d.referrals ?? d.count ?? 0})),
+  };
+}
+
+async function loadData(){
+  try{
+    const snap = await getDoc(doc(db, "dashboardMetrics", "public"));
+    if(!snap.exists()) throw new Error("no snapshot");
+    DATA = mapSnapshot(snap.data());
+    const when = DATA.updatedAt ? new Date(DATA.updatedAt).toLocaleString() : "—";
+    document.getElementById("foot").textContent = `Live snapshot · updated ${when} · aggregate data only`;
+  }catch(e){
+    DATA = SAMPLE;
+    const b=document.getElementById("banner"); b.className="banner warn";
+    b.textContent="Couldn’t read the live dashboard snapshot — showing empty figures. Capture/close a journey (or run the dashboard once) to generate dashboardMetrics/public.";
+    document.getElementById("foot").textContent="Snapshot unavailable";
+  }
+}
+
+// ---- charts from the mapped data -------------------------------------------
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const barsFrom=rows=>{if(!rows.length)return"";const m=Math.max(...rows.map(r=>r.n))||1;return `<div class="bars">${rows.map(r=>`<div class="bar-row"><span>${esc(r.label)}</span><span class="bar-track"><span class="bar-fill" style="width:${Math.round(r.n/m*100)}%"></span></span><span class="bar-val">${r.n}</span></div>`).join("")}</div>`;};
+function chartHtml(k){
+  if(k==="districts")return barsFrom(DATA.byDistrict.map(d=>({label:d.name,n:d.count})));
+  if(k==="facilities")return barsFrom(DATA.topReferring.map(d=>({label:d.name,n:d.count})));
+  if(k==="trend"){const t=DATA.dailyTrend.map(d=>d.count);if(!t.length)return"";const m=Math.max(...t)||1;return `<div class="spark">${t.map(v=>`<div style="height:${Math.round(v/m*100)}%" title="${v}"></div>`).join("")}</div>`;}
+  return ""; // shift/routes: LLM describes verbally
+}
+
+// ---- talk to the proxy (which holds the key + guardrails) -------------------
+const history=[];
+async function askLLM(){
+  const res=await fetch(PROXY_URL,{method:"POST",headers:{"content-type":"application/json"},
+    body:JSON.stringify({messages:history, metrics:DATA})});
+  if(!res.ok){ if(res.status===429) throw new Error("busy"); throw new Error("proxy "+res.status); }
+  const data=await res.json();
+  return data.answer || "";
+}
+
+// ---- UI --------------------------------------------------------------------
+const chat=document.getElementById("chat"),input=document.getElementById("q"),sendBtn=document.getElementById("send");
+let speakOn=false,busy=false;
+function add(role,html){const d=document.createElement("div");d.className="msg "+role;d.innerHTML=`<div class="who">${role==="user"?"You":"G"}</div><div class="bubble">${html}</div>`;chat.appendChild(d);chat.scrollTop=chat.scrollHeight;return d;}
+async function ask(text){
+  if(!text.trim()||busy)return; busy=true;sendBtn.disabled=true;
+  add("user",esc(text)); input.value=""; history.push({role:"user",content:text});
+  const t=add("bot",'<span class="dots"><span></span><span></span><span></span></span>');
+  try{
+    const raw=await askLLM(); history.push({role:"assistant",content:raw});
+    let chart="none"; const m=raw.match(/\[chart:(districts|facilities|trend)\]/i); if(m)chart=m[1].toLowerCase();
+    const clean=raw.replace(/\[chart:[a-z]+\]/ig,"").trim();
+    t.querySelector(".bubble").innerHTML=esc(clean).replace(/\n/g,"<br>")+(chart!=="none"?chartHtml(chart):"");
+    if(speakOn) say(clean);
+  }catch(err){
+    t.querySelector(".bubble").innerHTML = err.message==="busy"
+      ? "The assistant is busy (free-tier rate limit) — please try again in a moment."
+      : "⚠️ Couldn’t reach the assistant just now — please try again.";
+  }finally{busy=false;sendBtn.disabled=false;chat.scrollTop=chat.scrollHeight;}
+}
+sendBtn.onclick=()=>ask(input.value);
+input.addEventListener("keydown",e=>{if(e.key==="Enter")ask(input.value);});
+
+["How did we do this month?","Which district needs attention?","Show the 7-day trend","Top referring facilities","Where should we focus?"]
+  .forEach(c=>{const b=document.createElement("div");b.className="chip";b.textContent=c;b.onclick=()=>ask(c);document.getElementById("chips").appendChild(b);});
+
+// ---- voice out (selectable voice + speed) ----------------------------------
+const synth=window.speechSynthesis,voiceSel=document.getElementById("voiceSel"),rate=document.getElementById("rate");
+let voices=[];
+function loadVoices(){voices=(synth?synth.getVoices():[]).filter(v=>/en/i.test(v.lang));
+  if(!voices.length){voiceSel.innerHTML='<option>Default</option>';return;}
+  voiceSel.innerHTML=voices.map((v,i)=>`<option value="${i}">${v.name} (${v.lang})</option>`).join("");
+  const za=voices.findIndex(v=>/en-ZA/i.test(v.lang)),gb=voices.findIndex(v=>/en-GB/i.test(v.lang));
+  voiceSel.value=za>=0?za:gb>=0?gb:0;}
+if(synth){synth.onvoiceschanged=loadVoices;loadVoices();}
+function say(t){if(!synth)return;synth.cancel();const u=new SpeechSynthesisUtterance(t.replace(/[*_#>`]/g,""));const v=voices[+voiceSel.value];if(v)u.voice=v;u.rate=parseFloat(rate.value)||1;synth.speak(u);}
+document.getElementById("test").onclick=()=>say("This is the G-Set Insights assistant.");
+document.getElementById("gear").onclick=()=>document.getElementById("settings").classList.toggle("show");
+const speakBtn=document.getElementById("speak");
+speakBtn.onclick=()=>{speakOn=!speakOn;speakBtn.classList.toggle("on",speakOn);if(speakOn)say("Voice answers on.");else synth.cancel();};
+
+// ---- voice in ---------------------------------------------------------------
+const micBtn=document.getElementById("mic"),SR=window.SpeechRecognition||window.webkitSpeechRecognition,vState=document.getElementById("voiceState");
+if(!SR){micBtn.disabled=true;vState.innerHTML='🔊 Voice output available; 🎙️ voice input needs a supported browser.';}
+else{const rec=new SR();rec.lang="en-ZA";rec.interimResults=false;let listening=false;
+  micBtn.onclick=()=>{try{listening?rec.stop():rec.start();}catch(e){micBtn.disabled=true;}};
+  rec.onstart=()=>{listening=true;micBtn.classList.add("live");};rec.onend=()=>{listening=false;micBtn.classList.remove("live");};
+  rec.onerror=e=>{listening=false;micBtn.classList.remove("live");if(e.error==="not-allowed"){micBtn.disabled=true;vState.innerHTML='🎙️ Allow microphone access to speak.';}};
+  rec.onresult=e=>{const s=e.results[0][0].transcript;input.value=s;ask(s);};
+}
+
+// ---- boot ------------------------------------------------------------------
+add("bot",`Hi! I'm your dashboard companion — ask me anything about the operational data in plain language, and I'll keep track of the conversation. I only ever see <span class="stat">aggregate</span> figures, never patient details.`);
+await loadData();
+</script>
+</body>
+</html>
