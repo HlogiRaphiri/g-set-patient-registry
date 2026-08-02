@@ -25,6 +25,7 @@
       <li class="nav-item"><button class="nav-link" data-tab="vehicles"><i class="fa-solid fa-truck-medical me-1"></i>Vehicles</button></li>
       <li class="nav-item"><button class="nav-link" data-tab="audit"><i class="fa-solid fa-clipboard-list me-1"></i>Audit Logs</button></li>
       <li class="nav-item"><button class="nav-link" data-tab="setup"><i class="fa-solid fa-database me-1"></i>System Setup</button></li>
+      <li class="nav-item"><button class="nav-link" data-tab="backup"><i class="fa-solid fa-shield-halved me-1"></i>Backup</button></li>
     </ul>
 
     <!-- USERS -->
@@ -143,6 +144,39 @@
           <div class="glass panel">
             <h3 style="font-size:1.05rem">Current Data</h3>
             <div class="kpi-grid" id="countGrid"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- BACKUP -->
+    <section data-pane="backup" hidden>
+      <div class="row g-3">
+        <div class="col-lg-7">
+          <div class="glass panel">
+            <h3 style="font-size:1.05rem">Off-Platform Backup</h3>
+            <p class="text-dim">
+              Firestore’s scheduled backups and point-in-time recovery are Blaze-plan features.
+              On the current plan there is no server-side way to undo an accidental bulk delete,
+              a faulty import or a bad security-rules publish. This export is the recovery copy
+              until the project moves to Blaze.
+            </p>
+            <div class="d-flex gap-2 flex-wrap">
+              <button class="btn btn-ghost" id="estimateBtn"><i class="fa-solid fa-calculator me-1"></i>Check Size</button>
+              <button class="btn btn-ems" id="backupBtn"><i class="fa-solid fa-download me-1"></i>Download Full Backup</button>
+            </div>
+            <pre id="backupLog" class="mono mt-3 p-3" style="background:rgba(6,11,28,.6);border-radius:10px;max-height:220px;overflow:auto;font-size:.8rem;color:var(--cyan-400)"></pre>
+          </div>
+        </div>
+        <div class="col-lg-5">
+          <div class="glass panel">
+            <h3 style="font-size:1.05rem">Before You Run This</h3>
+            <ul class="text-dim" style="font-size:.9rem;padding-left:1.1rem;margin-bottom:0">
+              <li class="mb-2"><strong>Run off-peak.</strong> An export reads every document it copies, and the daily read quota is shared with live capture. Avoid shift changeover.</li>
+              <li class="mb-2"><strong>Once a day at most.</strong> Weekly is enough for a register this size.</li>
+              <li class="mb-2"><strong>The file contains patient records.</strong> It is a health record under the National Health Act and personal information under POPIA.</li>
+              <li><strong>Store it on departmental encrypted storage.</strong> Not personal email, personal cloud storage or an unencrypted USB drive.</li>
+            </ul>
           </div>
         </div>
       </div>

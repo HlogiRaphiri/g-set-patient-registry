@@ -14,6 +14,7 @@ import { requireAuth, esc, toast, writeAudit, fmtStamp, confirmDialog } from "./
 import { renderShell } from "./layout.js";
 import { getDistricts, getStations, getFacilities, getVehicles, invalidate } from "./data-service.js";
 import { seedAll, seedVehicles, collectionCount } from "./seed.js";
+import { runBackup, estimateReads, canBackup } from "./backup-export.js";
 
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
@@ -49,6 +50,7 @@ let usersTable, facTable, vehTable, auditTable, districts = [], stations = [];
   wireFacilities();
   wireVehicles();
   wireSetup();
+  wireBackup(profile);
 
   loadUsers();
 })();
@@ -316,6 +318,70 @@ function wireSetup() {
       append("✗ " + err.message);
       toast("err", "Import failed", err.message);
     } finally { btn.disabled = false; }
+  });
+}
+
+/* ----------------------------------------------------------------- Backup */
+/**
+ * Off-platform backup. Superuser only — the export contains full patient
+ * records, so the tab is removed outright for any other role rather than left
+ * visible and failing on click.
+ */
+function wireBackup(profile) {
+  const tabBtn = document.querySelector('#adminTabs [data-tab="backup"]');
+  const pane = document.querySelector('[data-pane="backup"]');
+
+  if (!canBackup(profile)) {
+    tabBtn?.closest(".nav-item")?.remove();
+    pane?.remove();
+    return;
+  }
+
+  const log = document.getElementById("backupLog");
+  const estimateBtn = document.getElementById("estimateBtn");
+  const backupBtn = document.getElementById("backupBtn");
+  const append = (m) => { log.textContent += m + "\n"; log.scrollTop = log.scrollHeight; };
+
+  // Reuse the app's own confirm dialog instead of window.confirm so the read
+  // cost is shown in the same style as every other destructive action.
+  const confirmFn = (question) => {
+    const [head, ...rest] = question.split("\n\n");
+    return confirmDialog({
+      title: "Run full backup?",
+      body: `${head} ${rest.join(" ")}`,
+      confirmText: "Run Backup",
+    });
+  };
+
+  estimateBtn.addEventListener("click", async () => {
+    estimateBtn.disabled = true;
+    log.textContent = "";
+    try {
+      append("Counting records (this does not read the documents)…");
+      const { counts, total } = await estimateReads();
+      Object.entries(counts).forEach(([k, v]) =>
+        append(`  ${k}: ${v === null ? "no access" : v.toLocaleString("en-ZA")}`));
+      append(`\nA full backup would read ${total.toLocaleString("en-ZA")} documents.`);
+      append("The daily read quota is 50,000, shared with live capture.");
+    } catch (err) {
+      append("✗ " + (err?.message || err));
+      toast("err", "Count failed", err?.message || "Try again shortly.");
+    } finally { estimateBtn.disabled = false; }
+  });
+
+  backupBtn.addEventListener("click", async () => {
+    backupBtn.disabled = true;
+    log.textContent = "";
+    try {
+      const backup = await runBackup(append, confirmFn);
+      if (backup) {
+        await writeAudit("Backup Exported", { documents: backup.meta.documentCount });
+        toast("ok", "Backup downloaded", `${backup.meta.documentCount.toLocaleString("en-ZA")} documents exported.`);
+      }
+    } catch (err) {
+      append("✗ " + (err?.message || err));
+      toast("err", "Backup failed", err?.message || "Try again shortly.");
+    } finally { backupBtn.disabled = false; }
   });
 }
 
