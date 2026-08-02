@@ -5,7 +5,7 @@
  * downloads or edits.
  */
 
-import { readSnapshot, currentShift, shiftLabel } from "./metrics.js";
+import { readSnapshot, subscribeSnapshot, currentShift, shiftLabel } from "./metrics.js";
 import { auth } from "./firebase-config.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
@@ -441,29 +441,73 @@ function emptyState(msg) {
   document.getElementById("syncInfo").textContent = "";
 }
 
-async function load() {
-  const demo = new URLSearchParams(location.search).has("demo");
-  try {
-    const snap = demo ? DEMO : (await readSnapshot());
-    if (!snap) { emptyState("Sign in as staff and open the Operational Dashboard once (or capture a patient) to publish the first aggregate snapshot."); return; }
-    render(snap);
-  } catch (e) {
-    if (demo) { render(DEMO); return; }
-    emptyState("Could not reach the live snapshot. Check the Firebase connection, then refresh.");
-  }
+/**
+ * Boot. In demo mode we render the canned snapshot and never touch Firestore.
+ * Otherwise we simply attach the listener — it fires immediately with the
+ * current document, so there is no separate initial read to pay for.
+ */
+function load() {
+  if (isDemo()) { render(DEMO); return; }
+  startLive();
 }
 
-// Refresh every 30s: re-render if the snapshot changed OR the shift rolled over
-// (07:00 / 19:00). The rollover flips the default view to a fresh new-shift state.
-setInterval(async () => {
-  if (new URLSearchParams(location.search).has("demo")) return;
-  try {
-    const snap = await readSnapshot();
-    const shiftChanged = current && currentShift(new Date()).start.toISOString() !== lastShiftStart;
-    if (snap && (snap.updatedAt !== current?.updatedAt || shiftChanged)) render(snap);
-    else if (shiftChanged && current) render(current);
-  } catch { /* keep last good view */ }
-}, 30000);
+/* ============================================================ live updates
+ *
+ * Previously this polled readSnapshot() every 30 seconds. That cost 2,880
+ * Firestore reads per day for EVERY open tab, whether or not anything had
+ * changed — and this dashboard is public, so the number of open tabs is not
+ * something we control. A dozen wall displays left running would have consumed
+ * the entire Spark daily read quota on their own, and an exhausted quota means
+ * the register stops answering mid-shift.
+ *
+ * A listener bills a read on attach and then only when the document actually
+ * changes. An idle dashboard now costs nothing.
+ *
+ * The 07:00 / 19:00 shift rollover is pure local clock arithmetic, so it is
+ * handled by a timer that re-renders the data already in memory — no reads.
+ */
+const isDemo = () => new URLSearchParams(location.search).has("demo");
+
+let unsubscribe = null;
+
+function applySnapshot(snap) {
+  if (!snap) {
+    emptyState("Sign in as staff and open the Operational Dashboard once (or capture a patient) to publish the first aggregate snapshot.");
+    return;
+  }
+  if (snap.updatedAt !== current?.updatedAt) render(snap);
+}
+
+function startLive() {
+  if (unsubscribe || isDemo()) return;
+  unsubscribe = subscribeSnapshot(
+    applySnapshot,
+    () => {
+      // Mid-session hiccup: keep the last good view rather than blanking a wall
+      // display. If we never got a first render, say so plainly.
+      if (!current) emptyState("Could not reach the live snapshot. Check the Firebase connection, then refresh.");
+    }
+  );
+}
+
+function stopLive() {
+  if (unsubscribe) { unsubscribe(); unsubscribe = null; }
+}
+
+// Detach while the tab is hidden; reattach (one read) when it returns.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) stopLive();
+  else { startLive(); checkRollover(); }
+});
+
+// Shift changeover: re-render what we already hold so the view visibly resets
+// at 07:00 and 19:00 even if no new transfer has been captured yet. Zero reads.
+function checkRollover() {
+  if (!current) return;
+  const nowStart = currentShift(new Date()).start.toISOString();
+  if (nowStart !== lastShiftStart) render(current);
+}
+setInterval(checkRollover, 30000);
 
 // Fullscreen toggle.
 document.getElementById("fsBtn").addEventListener("click", () => {

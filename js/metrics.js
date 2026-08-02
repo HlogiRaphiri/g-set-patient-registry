@@ -21,7 +21,7 @@
  */
 
 import { db, COL } from "./firebase-config.js";
-import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getAllPatients, getStations, getDistricts, getVehicles } from "./data-service.js";
 import * as S from "./stats.js";
 
@@ -259,15 +259,99 @@ export async function writeSnapshot(rows, refs = {}) {
   return snap;
 }
 
-export async function refreshSnapshot() {
+/* ===================================================  read-quota guards  */
+/**
+ * QUOTA NOTE — read this before changing the numbers below.
+ *
+ * refreshSnapshot() calls getAllPatients(), which reads EVERY patient document.
+ * Firestore bills one read per document, so the cost of a single refresh grows
+ * with the size of the register. It was previously fired on every capture and
+ * every journey close, which means the daily read cost grows as
+ * (captures per day x records in the register) — i.e. quadratically. On the
+ * Spark plan's 50,000 reads/day that wall arrives without warning, and when it
+ * does Firestore simply stops answering until the quota resets.
+ *
+ * Two guards below:
+ *   1. COALESCE  — concurrent callers share one in-flight refresh.
+ *   2. THROTTLE  — at most one refresh per REFRESH_MIN_MS, shared across tabs
+ *                  via localStorage. A skipped call schedules a TRAILING run so
+ *                  the last capture in a burst is never lost.
+ *
+ * This caps refreshes per day, but each refresh still costs one read per
+ * record. It buys time; it is not the structural fix. See PHASE 2 in
+ * IMPLEMENTATION-NOTES.md (windowed scan + all-time counters).
+ */
+const REFRESH_MIN_MS = 120000;              // one refresh per 2 minutes, at most
+const REFRESH_LOCK_KEY = "gset:lastSnapshotRefresh";
+
+let refreshInFlight = null;                  // shared promise for concurrent callers
+let trailingTimer = null;                    // pending trailing refresh
+let lastRefreshLocal = 0;                    // fallback when localStorage is unavailable
+
+function lastRefreshAt() {
+  try { return Number(localStorage.getItem(REFRESH_LOCK_KEY)) || 0; }
+  catch { return lastRefreshLocal; }
+}
+function markRefreshed(t) {
+  lastRefreshLocal = t;
+  try { localStorage.setItem(REFRESH_LOCK_KEY, String(t)); } catch { /* private mode */ }
+}
+
+/** The actual full recompute. Always reads the whole patient collection. */
+async function runRefresh() {
+  markRefreshed(Date.now());                 // mark BEFORE, so a slow run still blocks others
   const [rows, stations, districts, vehicles] = await Promise.all([
     getAllPatients(), getStations().catch(() => []), getDistricts().catch(() => []), getVehicles().catch(() => []),
   ]);
   return writeSnapshot(rows, { stations, districts, vehicles });
 }
 
-/** Read the public snapshot. Works WITHOUT authentication (rules permit it). */
+/**
+ * Rebuild and publish the aggregate snapshot, throttled.
+ * @param {{force?: boolean}} [opts] force:true bypasses the throttle — use only
+ *        for an explicit "refresh now" button, never in a capture/close path.
+ * @returns {Promise<object|null>} the snapshot, or null when the call was
+ *          throttled (a trailing refresh has been scheduled instead).
+ */
+export async function refreshSnapshot(opts = {}) {
+  if (refreshInFlight) return refreshInFlight;           // 1. coalesce
+
+  const waited = Date.now() - lastRefreshAt();
+  if (!opts.force && waited < REFRESH_MIN_MS) {          // 2. throttle
+    if (!trailingTimer) {                                //    ...with trailing edge
+      trailingTimer = setTimeout(() => {
+        trailingTimer = null;
+        refreshSnapshot().catch(() => {});
+      }, REFRESH_MIN_MS - waited + 250);
+    }
+    return null;
+  }
+
+  refreshInFlight = runRefresh().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+
+/** Read the public snapshot once. Works WITHOUT authentication (rules permit it). */
 export async function readSnapshot() {
   const s = await getDoc(doc(db, METRICS, PUBLIC_DOC));
   return s.exists() ? s.data() : null;
+}
+
+/**
+ * Subscribe to the public snapshot.
+ *
+ * Replaces polling. A Firestore listener bills a read when the document is
+ * first attached and then only when it actually CHANGES — so an idle dashboard
+ * costs nothing, where a 30-second poll cost 2,880 reads per day per open tab.
+ *
+ * @param {(snap: object|null) => void} onData  fired on attach and on change
+ * @param {(err: Error) => void} [onError]      transport/permission failures
+ * @returns {() => void} unsubscribe
+ */
+export function subscribeSnapshot(onData, onError) {
+  return onSnapshot(
+    doc(db, METRICS, PUBLIC_DOC),
+    (s) => onData(s.exists() ? s.data() : null),
+    (err) => { if (onError) onError(err); }
+  );
 }
