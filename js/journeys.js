@@ -13,6 +13,7 @@ import { requireAuth, can, applyCapVisibility, fmtStamp, esc, toast, writeAudit 
 import { renderShell } from "./layout.js";
 import { getAllPatients, closeJourney, updateVehicleRegistration, getVehicles, attachAutocomplete } from "./data-service.js";
 import { refreshSnapshot } from "./metrics.js";
+import { statusPill, overdueSummary, overdueLevel } from "./overdue.js";
 
 /** Normalise a station/district name for tolerant matching. */
 const norm = (s) => String(s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -91,13 +92,18 @@ let table, allRows = [], currentTab = "active", canClose = false, canEditVehicle
   paint();
 })();
 
-function paint() {
+function paint(opts = {}) {
   const rows = allRows.filter((r) => (currentTab === "active" ? !r.closed : r.closed));
+  const now = new Date();
+  const page = opts.preservePage ? table.page() : 0;
+
+  // Age is computed fresh on every paint, so the pills stay honest as the shift
+  // runs on without re-reading anything from Firestore.
+  paintOverdueBanner(allRows.filter((r) => !r.closed), now);
+
   table.clear();
   rows.forEach((r) => {
-    const status = r.closed
-      ? `<span class="status-pill status-closed">Closed</span>`
-      : `<span class="status-pill status-active">Active</span>`;
+    const status = statusPill(r, now);
 
     // Build the action cell: lock/close indicator plus an optional Edit-vehicle button.
     const parts = [];
@@ -127,7 +133,75 @@ function paint() {
     ]);
   });
   table.draw();
+  if (opts.preservePage && page) table.page(page).draw(false);
 }
+
+/**
+ * Banner above the table summarising open journeys past the threshold.
+ *
+ * The table sorts newest-first, so the oldest — i.e. exactly the ones needing
+ * attention — sink to the last page where nobody looks. The banner lifts them
+ * out, and the button filters the table down to them.
+ */
+function paintOverdueBanner(activeRows, now) {
+  const anchor = document.querySelector("#journeyTable")?.closest(".glass");
+  if (!anchor) return;
+
+  let el = document.getElementById("overdueBanner");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "overdueBanner";
+    el.className = "glass panel mb-3";
+    el.style.cssText = "border-left:3px solid #fbbf24";
+    anchor.parentNode.insertBefore(el, anchor);
+    el.addEventListener("click", (e) => {
+      if (!e.target.closest("[data-show-overdue]")) return;
+      const box = document.getElementById("quickSearch");
+      if (box) { box.value = "Overdue"; }
+      table.search("Overdue").draw();
+    });
+  }
+
+  const { overdue, critical, unknown, total } = overdueSummary(activeRows, now);
+  if (!total && !unknown) { el.hidden = true; return; }
+  el.hidden = false;
+
+  const bits = [];
+  if (total) bits.push(`<strong>${total}</strong> open journey${total === 1 ? "" : "s"} past the review threshold${critical ? ` (<strong>${critical}</strong> long overdue)` : ""}`);
+  if (unknown) bits.push(`<strong>${unknown}</strong> active record${unknown === 1 ? "" : "s"} with no readable capture time`);
+
+  el.innerHTML = `
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div>
+        <i class="fa-solid fa-triangle-exclamation me-2" style="color:#fbbf24"></i>
+        ${bits.join(" · ")}
+        <div class="text-faint mt-1" style="font-size:.82rem">
+          Usually a delivered patient whose record was never closed — which inflates active counts and skews transport averages. Confirm the delivery, then close the record.
+        </div>
+      </div>
+      ${total ? `<button class="btn btn-ghost btn-sm" data-show-overdue><i class="fa-solid fa-filter me-1"></i>Show these</button>` : ""}
+    </div>`;
+}
+
+/**
+ * Ages advance while the page sits open — a journey crossing the threshold at
+ * 11:00 should say so at 11:00, not at the next manual refresh. This is pure
+ * local arithmetic on rows already in memory: no reads.
+ *
+ * Redrawing a DataTable sends the user back to page one, so we only redraw when
+ * a journey has actually changed level. On every other tick we refresh the
+ * banner alone, which is free and disturbs nothing.
+ */
+let levelSignature = "";
+setInterval(() => {
+  if (document.hidden || !table) return;
+  const now = new Date();
+  const active = allRows.filter((r) => !r.closed);
+  const sig = active.map((r) => `${r.id}:${overdueLevel(r, now)}`).join("|");
+  if (sig === levelSignature) { paintOverdueBanner(active, now); return; }
+  levelSignature = sig;
+  paint({ preservePage: true });
+}, 60000);
 
 /* ------------------------------------------------------------- Close flow */
 

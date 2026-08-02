@@ -269,6 +269,16 @@ a:hover { color: var(--cyan-500); }
 .status-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .status-active { color: var(--active); background: rgba(56,225,255,.12); border: 1px solid rgba(56,225,255,.3); }
 .status-closed { color: var(--closed); background: rgba(124,141,181,.12); border: 1px solid rgba(124,141,181,.3); }
+/* A journey open past the review threshold. Amber warns; red is not used for
+   "late" alone, so that red stays meaningful for the far-overdue case. */
+.status-overdue { color: #fbbf24; background: rgba(251,191,36,.12); border: 1px solid rgba(251,191,36,.35); }
+.status-critical { color: #fb7185; background: rgba(251,113,133,.14); border: 1px solid rgba(251,113,133,.4); }
+.status-critical::before { animation: pill-pulse 1.8s ease-in-out infinite; }
+/* An active record whose capture timestamp is missing or unreadable: neither
+   on-time nor overdue, and worth investigating on its own account. */
+.status-unknown { color: var(--closed); background: rgba(124,141,181,.10); border: 1px dashed rgba(124,141,181,.45); }
+@keyframes pill-pulse { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+@media (prefers-reduced-motion: reduce) { .status-critical::before { animation: none } }
 
 /* --------------------------------------------------------------- Forms */
 .form-label { font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); font-weight: 600; }

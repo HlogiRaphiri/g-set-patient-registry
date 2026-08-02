@@ -10,13 +10,41 @@
  * again at write time so storage is always uppercase.
  */
 
-import { requireAuth, nextIncidentNumber, writeAudit, toast, fmtYMD } from "./app.js";
+import { requireAuth, nextIncidentNumber, writeAudit, toast, fmtYMD, confirmDialog } from "./app.js";
 import { renderShell } from "./layout.js";
-import { getFacilities, getStations, getDistricts, getVehicles, attachAutocomplete, createPatient } from "./data-service.js";
+import { getFacilities, getStations, getDistricts, getVehicles, attachAutocomplete, createPatient,
+         findPatientByIncident, getActivePatients } from "./data-service.js";
 import { refreshSnapshot } from "./metrics.js";
 
 /** Normalise any entered string to trimmed UPPERCASE. */
 const up = (s) => String(s ?? "").trim().toUpperCase();
+
+/** Shape produced by nextIncidentNumber(), e.g. GS-20260802-000001. */
+const INCIDENT_RE = /^GS-\d{8}-\d{6}$/;
+
+/**
+ * Look for an already-open journey that appears to be this same transfer:
+ * same patient name, same referring facility, same date.
+ *
+ * Reads only the open journeys (a `closed == false` query), which is a small
+ * set at any moment — not the whole register.
+ *
+ * @returns {Promise<object|null>} the existing journey, or null
+ */
+async function findOpenTwin(payload) {
+  try {
+    const open = await getActivePatients();
+    return open.find((r) =>
+      up(r.patientName) === payload.patientName &&
+      up(r.referringFacility) === payload.referringFacility &&
+      r.date === payload.date) || null;
+  } catch {
+    // A failed duplicate check must never block a capture — the patient comes
+    // first, and a possible duplicate is a far smaller problem than a refused
+    // registration.
+    return null;
+  }
+}
 
 /** Normalise a station/district name for tolerant matching. */
 const norm = (s) => String(s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -161,6 +189,43 @@ function bindUppercase(input) {
     };
 
     try {
+      // ---- Guard 1: the incident number must be real -------------------
+      // Yesterday's fault left this field empty when generation failed, and an
+      // empty or placeholder number would have been saved as-is. A record with
+      // no usable identifier cannot be found, audited or reconciled later, so
+      // refuse the save and try to issue a fresh number instead.
+      if (!INCIDENT_RE.test(payload.incidentNumber)) {
+        toast("err", "No incident number", "The number could not be generated. Retrying now — save again once it appears.");
+        await issueIncident();
+        return;
+      }
+
+      // ---- Guard 2: that number must not already be in use --------------
+      // Numbering is transactional so collisions should be impossible, but this
+      // costs a single read and is the difference between catching a numbering
+      // fault on the spot and discovering it in a monthly reconciliation.
+      const clash = await findPatientByIncident(payload.incidentNumber);
+      if (clash) {
+        toast("err", "Incident number already used", `${payload.incidentNumber} belongs to ${clash.patientName || "an existing record"}. A new number is being issued.`);
+        await issueIncident();
+        return;
+      }
+
+      // ---- Guard 3: the same transfer may already be open ---------------
+      // Two ECC operators taking the same call produces two live journeys for
+      // one patient, which double-counts every downstream figure. This is a
+      // warning, not a block: genuine repeat transfers of the same patient on
+      // the same day do happen.
+      const twin = await findOpenTwin(payload);
+      if (twin) {
+        const proceed = await confirmDialog({
+          title: "Possible duplicate",
+          body: `${twin.incidentNumber} is already open for ${twin.patientName} from ${twin.referringFacility}, captured by ${twin.capturedByName || "another operator"}. Open a second journey anyway?`,
+          confirmText: "Yes, open anyway",
+        });
+        if (!proceed) return;
+      }
+
       await createPatient(payload);
       await writeAudit("Patient Created", { incidentNumber: payload.incidentNumber, patient: payload.patientName });
       refreshSnapshot().catch(() => {});

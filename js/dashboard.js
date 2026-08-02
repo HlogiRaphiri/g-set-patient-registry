@@ -8,6 +8,7 @@ import { renderShell } from "./layout.js";
 import { getAllPatients, getDistricts, getStations, getVehicles } from "./data-service.js";
 import { writeSnapshot } from "./metrics.js";
 import * as S from "./stats.js";
+import { overdueSummary, overdueRows, hoursOpen, fmtDuration, thresholds } from "./overdue.js";
 
 const CH = {}; // live chart instances
 const C = {
@@ -73,11 +74,41 @@ function render() {
 }
 
 /* ---------------------------------------------------------------- KPIs */
+
+/**
+ * "Open Too Long" KPI. Counts active journeys past the review threshold and
+ * names the oldest, so the card points at a specific record rather than just
+ * raising an abstract number.
+ *
+ * Reads nothing — it works on the rows the dashboard already loaded.
+ */
+function overdueCard(rows) {
+  const now = new Date();
+  const { total, critical, unknown } = overdueSummary(rows, now);
+  const t = thresholds();
+
+  if (!total) {
+    return {
+      label: "Open Too Long", icon: "fa-hourglass-half", text: "None",
+      foot: unknown ? `${unknown} with no capture time` : `Nothing open beyond ${fmtDuration(t.overdue)}`,
+    };
+  }
+
+  const oldest = overdueRows(rows, now)[0];
+  const age = fmtDuration(hoursOpen(oldest, now));
+  const foot = critical
+    ? `${critical} long overdue · oldest ${age}`
+    : `Oldest ${age} · ${oldest?.incidentNumber || ""}`;
+
+  return { label: "Open Too Long", icon: "fa-hourglass-half", value: total, foot };
+}
+
 function paintKpis(rows) {
   const k = S.kpis(rows);
   const cards = [
     { label: "Total Patients", icon: "fa-users", value: k.total },
     { label: "Active Journeys", icon: "fa-satellite-dish", value: k.active },
+    overdueCard(rows),
     { label: "Completed", icon: "fa-circle-check", value: k.completed },
     { label: "Patients Today", icon: "fa-calendar-day", value: k.today },
     { label: "Avg Transport", icon: "fa-stopwatch", value: k.avgTransport, suffix: " min", text: k.avgTransport == null ? "—" : null },
