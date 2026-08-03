@@ -15,6 +15,7 @@ import { renderShell } from "./layout.js";
 import { getFacilities, getStations, getDistricts, getVehicles, attachAutocomplete, createPatient,
          findPatientByIncident, getActivePatients } from "./data-service.js";
 import { refreshSnapshot } from "./metrics.js";
+import { canonicalDistrict } from "./districts.js";
 
 /** Normalise any entered string to trimmed UPPERCASE. */
 const up = (s) => String(s ?? "").trim().toUpperCase();
@@ -233,11 +234,14 @@ function bindUppercase(input) {
       incidentNumber: $("incidentNumber").value,
       date: $("incidentDate").value,
       referringFacility: up(refName),
-      referringDistrict: up(ref?.district || ""),
+      // Canonical spelling, NOT uppercase. Uppercasing here is what split each
+      // district into two chart entries, because the form's district field
+      // stores the Title Case reference spelling.
+      referringDistrict: canonicalDistrict(ref?.district || ""),
       referringLat: ref?.lat ?? null, referringLng: ref?.lng ?? null,
       receivingFacility: up(recName),
       receivingLat: rec?.lat ?? null, receivingLng: rec?.lng ?? null,
-      district: $("district").value,
+      district: canonicalDistrict($("district").value),
       station: $("station").value,
       vehicle: up($("vehicle").value),
       patientName: up($("patientName").value),

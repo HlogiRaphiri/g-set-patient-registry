@@ -21,7 +21,10 @@ const norm = (s) => String(s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
 let table, allRows = [], currentTab = "active", canClose = false, canEditVehicle = false, profileRef, editRow = null;
 
 (async () => {
-  const { profile } = await requireAuth("viewDashboard");
+  // Journeys shows individual patient records, so it is gated on viewJourneys
+  // rather than viewDashboard — management roles have dashboard access but must
+  // not reach the per-patient list, including by typing the URL directly.
+  const { profile } = await requireAuth("viewJourneys");
   profileRef = profile;
   canClose = can(profile, "closeJourney");
   // The vehicle registration is the only editable field post-capture; gate it

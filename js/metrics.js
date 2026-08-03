@@ -21,6 +21,7 @@
  */
 
 import { db, COL } from "./firebase-config.js";
+import { rowDistrict } from "./districts.js";
 import { doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getAllPatients, getStations, getDistricts, getVehicles } from "./data-service.js";
 import * as S from "./stats.js";
@@ -229,7 +230,9 @@ function coreAggregate(rows, refs = {}, allRows = rows) {
   const active = rows.filter((r) => !r.closed);
   const closed = rows.filter((r) => r.closed);
   const byDMap = {};
-  rows.forEach((r) => { const d = r.referringDistrict || r.district; if (d) byDMap[d] = (byDMap[d] || 0) + 1; });
+  // Normalised before grouping: the same district was stored both UPPERCASE
+  // and in Title Case, which split it into two slices on every chart.
+  rows.forEach((r) => { const d = rowDistrict(r); if (d) byDMap[d] = (byDMap[d] || 0) + 1; });
   const byDistrict = Object.entries(byDMap).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }));
 
   const topRef = topList(rows, "referringFacility", 10);

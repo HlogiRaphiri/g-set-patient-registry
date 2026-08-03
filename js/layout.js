@@ -13,7 +13,7 @@ const NAV = [
   { id: "dashboard", href: "dashboard.html", icon: "fa-chart-line", label: "Operational Dashboard", cap: "viewDashboard" },
   { id: "executive", href: "public-dashboard.html", icon: "fa-tower-cell", label: "Operations Centre", cap: "viewExecutive" },
   { id: "capture", href: "capture.html", icon: "fa-notes-medical", label: "Capture Patient", cap: "capturePatient" },
-  { id: "journeys", href: "journeys.html", icon: "fa-route", label: "Journeys", cap: "viewDashboard" },
+  { id: "journeys", href: "journeys.html", icon: "fa-route", label: "Journeys", cap: "viewJourneys" },
   { id: "heatmaps", href: "heatmaps.html", icon: "fa-map-location-dot", label: "Heatmaps", cap: "viewHeatmaps" },
   { id: "reports", href: "reports.html", icon: "fa-file-export", label: "Reports", cap: "exportReports" },
 ];

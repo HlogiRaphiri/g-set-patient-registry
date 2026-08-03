@@ -9,6 +9,7 @@ import { getAllPatients, getDistricts, getStations, getVehicles } from "./data-s
 import { writeSnapshot } from "./metrics.js";
 import * as S from "./stats.js";
 import { overdueSummary, overdueRows, hoursOpen, fmtDuration, thresholds } from "./overdue.js";
+import { rowDistrict, DISTRICTS } from "./districts.js";
 
 const CH = {}; // live chart instances
 const C = {
@@ -37,7 +38,9 @@ let allRows = [];
   writeSnapshot(rows, { vehicles, stations, districts }).catch(() => {});
 
   // Populate filter dropdowns.
-  fill("fDistrict", districts.map((d) => d.name).sort());
+  // Filter options come from the canonical list, not from whatever casing
+  // happens to be present in the reference collection.
+  fill("fDistrict", DISTRICTS.slice().sort());
   fill("fStation", stations.map((s) => s.name).sort());
   fill("fVehicle", vehicles.map((v) => v.registration).sort());
 
@@ -157,7 +160,8 @@ function paintCharts(rows) {
   const monthly = S.monthlyTrend(rows, 6);
   mk("cMonthly", { type: "bar", data: { labels: monthly.map((x) => x[0]), datasets: [{ label: "Patients", data: monthly.map((x) => x[1]), backgroundColor: C.ems2, borderRadius: 6 }] }, options: { plugins: { legend: { display: false } } } });
 
-  const dist = S.countBy(rows, "district", 6);
+  // Normalised so one district cannot appear twice in different casing.
+  const dist = S.countBy(rows.map((r) => ({ ...r, district: rowDistrict(r) })), "district", 6);
   mk("cDistrict", { type: "bar", data: { labels: dist.map((x) => x[0]), datasets: [{ data: dist.map((x) => x[1]), backgroundColor: PALETTE, borderRadius: 6 }] }, options: { indexAxis: "y", plugins: { legend: { display: false } } } });
 
   const sta = S.countBy(rows, "station", 8);
@@ -193,7 +197,7 @@ function paintRecent(rows) {
     <tr>
       <td class="mono text-ems">${esc(r.incidentNumber)}</td>
       <td>${esc(r.patientName)}</td>
-      <td>${esc(r.district || "")}</td>
+      <td>${esc(rowDistrict(r))}</td>
       <td class="mono">${esc(r.vehicle || "")}</td>
       <td>${fmtStamp(r.createdAt)}</td>
       <td><span class="status-pill ${r.closed ? "status-closed" : "status-active"}">${r.closed ? "Closed" : "Active"}</span></td>

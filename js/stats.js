@@ -4,11 +4,15 @@
  * DOM access here so it stays easy to reason about and reuse.
  */
 
+import { rowDistrict, canonicalDistrict } from "./districts.js";
+
 const toDate = (ts) => (ts?.toDate ? ts.toDate() : ts ? new Date(ts) : null);
 
 export function applyFilters(rows, f = {}) {
   return rows.filter((r) => {
-    if (f.district && r.district !== f.district) return false;
+    // Compared canonically: the district was stored both UPPERCASE and in
+    // Title Case, so a literal comparison silently dropped half the records.
+    if (f.district && rowDistrict(r) !== canonicalDistrict(f.district)) return false;
     if (f.station && r.station !== f.station) return false;
     if (f.vehicle && r.vehicle !== f.vehicle) return false;
     if (f.status === "Active" && r.closed) return false;
@@ -52,7 +56,7 @@ export function kpis(rows) {
     completed: closed.length,
     today: rows.filter((r) => r.date === today).length,
     avgTransport: avgTransportMinutes(closed),
-    topDistrict: topKey(rows, "district"),
+    topDistrict: topKey(rows.map((r) => ({ ...r, district: rowDistrict(r) })), "district"),
     topStation: topKey(rows, "station"),
     topVehicle: topKey(rows, "vehicle"),
     topReferring: topKey(rows, "referringFacility"),

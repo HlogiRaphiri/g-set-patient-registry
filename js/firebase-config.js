@@ -87,27 +87,27 @@ export const ROLE_LIST = Object.values(ROLES);
 /** Capabilities keyed by role. Kept in sync with firestore.rules. */
 export const CAPS = {
   [ROLES.SUPERUSER]: {
-    manageUsers: true, capturePatient: true, closeJourney: true,
+    manageUsers: true, capturePatient: true, closeJourney: true, viewJourneys: true,
     manageFacilities: true, manageVehicles: true, viewAudit: true,
     exportReports: true, viewDashboard: true, viewHeatmaps: true, adminSetup: true,
   },
   [ROLES.ECC]: {
-    manageUsers: false, capturePatient: true, closeJourney: true,
+    manageUsers: false, capturePatient: true, closeJourney: true, viewJourneys: true,
     manageFacilities: false, manageVehicles: false, viewAudit: false,
     exportReports: false, viewDashboard: true, viewHeatmaps: true, adminSetup: false,
   },
   [ROLES.SUBDISTRICT]: {
-    manageUsers: false, capturePatient: false, closeJourney: false,
+    manageUsers: false, capturePatient: false, closeJourney: false, viewJourneys: false,
     manageFacilities: false, manageVehicles: false, viewAudit: false,
     exportReports: true, viewDashboard: true, viewHeatmaps: true, adminSetup: false,
   },
   [ROLES.DISTRICT]: {
-    manageUsers: false, capturePatient: false, closeJourney: false,
+    manageUsers: false, capturePatient: false, closeJourney: false, viewJourneys: false,
     manageFacilities: false, manageVehicles: false, viewAudit: false,
     exportReports: true, viewDashboard: true, viewHeatmaps: true, adminSetup: false,
   },
   [ROLES.EXECUTIVE]: {
-    manageUsers: false, capturePatient: false, closeJourney: false,
+    manageUsers: false, capturePatient: false, closeJourney: false, viewJourneys: false,
     manageFacilities: false, manageVehicles: false, viewAudit: false,
     exportReports: true, viewDashboard: true, viewHeatmaps: true, adminSetup: false,
   },
