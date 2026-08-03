@@ -156,6 +156,58 @@ function bindUppercase(input) {
     return facilities.find((f) => String(f.name ?? "").toLowerCase() === key) || null;
   };
 
+  /* ------------------------------------------------- unmatched facilities */
+  /**
+   * Facility names are typed free-hand, so an entry that does not match the
+   * reference list exactly used to be saved with null coordinates — and null
+   * coerces to 0, which put the journey at 0°N 0°E on the live map.
+   *
+   * This does NOT guess a replacement. An earlier token-matching version
+   * offered "Dr Yusuf Dadoo Gateway Clinic" for a typed hospital name, and
+   * "Chris Hani Hospital" for Chris Hani Baragwanath — a different hospital
+   * entirely. Silently relocating a patient transfer to the wrong facility is
+   * far worse than leaving it off the map, so the operator is shown the closest
+   * entries and decides.
+   */
+  const tokens = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+  const STOPWORDS = new Set(["hospital", "clinic", "chc", "centre", "center", "satellite", "gateway", "dr", "st", "the"]);
+
+  /** Up to three reference names sharing a distinctive word with what was typed. */
+  function shortlist(name) {
+    const key = tokens(name).filter((t) => !STOPWORDS.has(t));
+    if (!key.length) return [];
+    return facilities
+      .map((f) => {
+        const have = tokens(f.name).filter((t) => !STOPWORDS.has(t));
+        return { name: f.name, shared: key.filter((t) => have.includes(t)).length };
+      })
+      .filter((x) => x.shared > 0)
+      .sort((a, b) => b.shared - a.shared)
+      .slice(0, 3)
+      .map((x) => x.name);
+  }
+
+  /**
+   * Resolve one facility field, warning the operator when it cannot be matched.
+   * @returns {Promise<{facility: object|null, cancelled: boolean}>}
+   */
+  async function resolveFacility(label, typedName) {
+    const exact = facilityByName(typedName);
+    if (exact) return { facility: exact, cancelled: false };
+
+    const near = shortlist(typedName);
+    const suggestion = near.length
+      ? ` The closest entries are: ${near.join(", ")}.`
+      : "";
+
+    const proceed = await confirmDialog({
+      title: `${label} not in the list`,
+      body: `“${up(typedName)}” does not match any facility on record, so no location can be saved and this journey will not appear on the route map.${suggestion} Correct the name, or save it as typed.`,
+      confirmText: "Save as typed",
+    });
+    return { facility: null, cancelled: !proceed };
+  }
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!form.checkValidity()) { form.reportValidity(); return; }
@@ -166,8 +218,16 @@ function bindUppercase(input) {
 
     const refName = $("referringFacility").value.trim();
     const recName = $("receivingFacility").value.trim();
-    const ref = facilityByName(refName);
-    const rec = facilityByName(recName);
+
+    // Resolve both facilities before building the payload. Either prompt may
+    // cancel the save, so this happens before anything is written.
+    const refRes = await resolveFacility("Referring facility", refName);
+    if (refRes.cancelled) { btn.disabled = false; btn.innerHTML = `<i class="fa-solid fa-plus me-1"></i> Open Journey`; return; }
+    const recRes = await resolveFacility("Receiving facility", recName);
+    if (recRes.cancelled) { btn.disabled = false; btn.innerHTML = `<i class="fa-solid fa-plus me-1"></i> Open Journey`; return; }
+
+    const ref = refRes.facility;
+    const rec = recRes.facility;
 
     const payload = {
       incidentNumber: $("incidentNumber").value,

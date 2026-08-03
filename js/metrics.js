@@ -127,17 +127,56 @@ function routes(rows, n = 8) {
 }
 
 /**
+ * Bounding box for South Africa, generous at the edges. The service is
+ * Gauteng-only, but validating against the country rather than the province
+ * leaves room for a genuine cross-border transfer without letting a corrupt
+ * coordinate through. Widen deliberately if the service area ever changes.
+ */
+const ZA_BOUNDS = { latMin: -35.5, latMax: -21.5, lngMin: 15.5, lngMax: 33.5 };
+
+/**
+ * Parse one stored coordinate.
+ *
+ * WHY THIS IS NOT `+value`: JavaScript coerces both null and "" to 0, and
+ * isFinite(0) is true — so a facility whose coordinates were never resolved
+ * passed validation as the point 0°N 0°E and was plotted in the Gulf of Guinea.
+ * That produced arcs running from Gauteng to the Atlantic on the live map.
+ *
+ * @returns {number|null} null when the value is absent or unusable
+ */
+function coord(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = typeof value === "number" ? value : Number(String(value).trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Both coordinates present, non-zero, and inside the service area. */
+function plottable(lat, lng) {
+  if (lat === null || lng === null) return false;
+  if (lat === 0 && lng === 0) return false;                       // Null Island
+  if (lat < ZA_BOUNDS.latMin || lat > ZA_BOUNDS.latMax) return false;
+  if (lng < ZA_BOUNDS.lngMin || lng > ZA_BOUNDS.lngMax) return false;  // also catches swapped lat/lng
+  return true;
+}
+
+/**
  * Geocoded routes for the live map. Each entry is one referring→receiving pair
  * with coordinates, a total patient count and a per-vehicle breakdown. All
  * aggregate — vehicle registrations are operational identifiers, never PHI.
+ *
+ * Journeys whose facilities could not be geocoded are counted in
+ * `routeMapUnplotted` rather than dropped silently, so the dashboard can say
+ * that the map is incomplete instead of quietly under-reporting.
  */
 function buildRouteMap(rows, n = 45) {
   const m = {};
+  let unplotted = 0;
   rows.forEach((r) => {
     const a = r.referringFacility, b = r.receivingFacility;
     if (!a || !b) return;
-    const fl = +r.referringLat, fo = +r.referringLng, tl = +r.receivingLat, to = +r.receivingLng;
-    if (!isFinite(fl) || !isFinite(fo) || !isFinite(tl) || !isFinite(to)) return; // need coords to plot
+    const fl = coord(r.referringLat), fo = coord(r.referringLng);
+    const tl = coord(r.receivingLat), to = coord(r.receivingLng);
+    if (!plottable(fl, fo) || !plottable(tl, to)) { unplotted++; return; }
     const key = a + "\u0000" + b;
     let e = m[key];
     if (!e) e = m[key] = { from: a, to: b, fromLat: fl, fromLng: fo, toLat: tl, toLng: to, count: 0, byVehicle: {} };
@@ -145,7 +184,9 @@ function buildRouteMap(rows, n = 45) {
     const v = (r.vehicle || "").trim() || "Unassigned";
     e.byVehicle[v] = (e.byVehicle[v] || 0) + 1;
   });
-  return Object.values(m).sort((x, y) => y.count - x.count).slice(0, n);
+  const list = Object.values(m).sort((x, y) => y.count - x.count).slice(0, n);
+  list.unplotted = unplotted;
+  return list;
 }
 
 function vehicleUtil(rows, vehicles, allRows = rows) {
@@ -195,6 +236,7 @@ function coreAggregate(rows, refs = {}, allRows = rows) {
   const topRec = topList(rows, "receivingFacility", 10);
   const topSta = topList(rows, "station", 10);
   const veh = vehicleUtil(rows, refs.vehicles, allRows);
+  const rmap = buildRouteMap(rows, 45);
   const longest = active.reduce((m, r) => { const d = toDate(r.createdAt); return d ? Math.max(m, Math.round((now - d.getTime()) / 60000)) : m; }, 0);
 
   return {
@@ -211,7 +253,7 @@ function coreAggregate(rows, refs = {}, allRows = rows) {
       topDistrict: byDistrict[0] || { name: "—", count: 0 },
     },
     byDistrict, topReferring: topRef, topReceiving: topRec, topStations: topSta,
-    vehicles: veh, routes: routes(rows, 8), routeMap: buildRouteMap(rows, 45), alerts: alerts(rows, refs.vehicles, allRows),
+    vehicles: veh, routes: routes(rows, 8), routeMap: rmap, routeMapUnplotted: rmap.unplotted || 0, alerts: alerts(rows, refs.vehicles, allRows),
   };
 }
 
