@@ -29,7 +29,7 @@ const DEFAULTS = {
   enabled: true,
   intervalMinutes: 45,      // normal reminder cadence
   highThreshold: 15,        // immediate reminder at or above this many open
-  onScreenSeconds: 9,       // how long the paramedic stays before walking off
+  onScreenSeconds: 20,       // how long the paramedic stays before walking off
 };
 
 export function reminderSettings() {
@@ -51,7 +51,7 @@ const SPRITE = "assets/paramedic.png";
 /* ---------------------------------------------------------------- styles */
 
 const CSS = `
-.jr-wrap{position:fixed;right:18px;bottom:18px;z-index:1080;width:300px;
+.jr-wrap{position:fixed;right:18px;bottom:18px;z-index:1080;width:314px;
   pointer-events:none;transform:translateX(140%);opacity:0;
   transition:transform .95s cubic-bezier(.22,.9,.3,1),opacity .4s ease}
 .jr-wrap.jr-in{transform:translateX(0);opacity:1}
@@ -62,14 +62,16 @@ const CSS = `
 .jr-figure img{position:relative;z-index:1;width:100%;height:auto;display:block;
   filter:drop-shadow(0 10px 18px rgba(0,0,0,.45))}
 .jr-wrap.jr-in .jr-figure{animation:jrWalk .62s ease-in-out 4, jrSettle .5s ease-out 2.5s both}
+/* The card fades in once the walk has finished, so it reads as being raised
+   into view rather than dragged along. */
+.jr-wrap.jr-in .jr-card{animation:jrCardIn .45s ease-out 2.4s both, jrNudge 2.4s ease-in-out 3.4s 3}
 
 /* Placard. Anchored to the LOWER half of the figure and extending leftwards,
    so it cannot reach the head. top:46% sits at belt height — the face occupies
    roughly the top quarter of the sprite, so there is a wide safety margin. */
-.jr-card{z-index:2;position:absolute;top:46%;left:0;width:190px;padding:11px 13px;
-  border-radius:13px;background:#fff;color:#12233d;pointer-events:auto;
-  box-shadow:0 12px 28px rgba(0,0,0,.4);transform-origin:right center;
-  animation:jrNudge 2.4s ease-in-out 1.2s 3}
+.jr-card{z-index:2;position:absolute;top:46%;left:0;width:196px;padding:12px 14px;
+  border-radius:13px;background:#fff;color:#12233d;pointer-events:auto;opacity:0;
+  box-shadow:0 12px 28px rgba(0,0,0,.4);transform-origin:right center}
 .jr-card::after{content:"";position:absolute;right:-7px;top:24px;width:14px;height:14px;
   background:#fff;transform:rotate(45deg)}
 .jr-msg{font-size:.82rem;line-height:1.4;font-weight:600;margin:0 0 8px}
@@ -92,6 +94,7 @@ const CSS = `
   75%{transform:translateY(-7px) rotate(1.6deg)}
 }
 @keyframes jrSettle{from{transform:translateY(-3px)}to{transform:translateY(0)}}
+@keyframes jrCardIn{from{opacity:0;transform:translateY(10px) scale(.94)}to{opacity:1;transform:none}}
 @keyframes jrNudge{
   0%,88%,100%{transform:rotate(0)}
   92%{transform:rotate(-2.4deg)}
@@ -99,9 +102,9 @@ const CSS = `
 }
 
 @media (max-width:576px){
-  .jr-wrap{right:10px;bottom:10px;width:250px}
-  .jr-figure{width:120px}
-  .jr-card{width:158px;top:44%}
+  .jr-wrap{right:8px;bottom:8px;width:min(272px, calc(100vw - 16px))}
+  .jr-figure{width:112px}
+  .jr-card{width:168px;top:42%}
 }
 
 /* WCAG 2.1 AA — motion must not be forced on anyone. The notification still
@@ -109,7 +112,8 @@ const CSS = `
 @media (prefers-reduced-motion: reduce){
   .jr-wrap{transition:opacity .3s ease;transform:none}
   .jr-wrap.jr-out{transform:none}
-  .jr-wrap.jr-in .jr-figure,.jr-card{animation:none}
+  .jr-wrap.jr-in .jr-figure{animation:none}
+  .jr-card{animation:none;opacity:1}
 }`;
 
 /* ------------------------------------------------------------ the sprite */
@@ -151,14 +155,14 @@ function show(profile, count, high) {
   wrap.setAttribute("role", "status");
   wrap.setAttribute("aria-live", "polite");
   wrap.innerHTML = `
-    <div class="jr-figure">
-      <div class="jr-card">
-        <p class="jr-msg">${message(firstName(profile), count, high)}</p>
-        <div class="jr-actions">
-          <button type="button" class="jr-btn" data-jr="view">View Open Journeys</button>
-          <button type="button" class="jr-btn jr-later" data-jr="close" aria-label="Dismiss reminder">Later</button>
-        </div>
+    <div class="jr-card">
+      <p class="jr-msg">${message(firstName(profile), count, high)}</p>
+      <div class="jr-actions">
+        <button type="button" class="jr-btn" data-jr="view">View Open Journeys</button>
+        <button type="button" class="jr-btn jr-later" data-jr="close" aria-label="Dismiss reminder">Later</button>
       </div>
+    </div>
+    <div class="jr-figure">
       <img src="${SPRITE}" alt="" aria-hidden="true">
     </div>`;
 
