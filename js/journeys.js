@@ -14,6 +14,7 @@ import { renderShell } from "./layout.js";
 import { getAllPatients, closeJourney, updateVehicleRegistration, getVehicles, attachAutocomplete } from "./data-service.js";
 import { refreshSnapshot } from "./metrics.js";
 import { statusPill, overdueSummary, overdueLevel } from "./overdue.js";
+import { poke } from "./journey-reminder.js";
 
 /** Normalise a station/district name for tolerant matching. */
 const norm = (s) => String(s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -103,6 +104,8 @@ function paint(opts = {}) {
   // Age is computed fresh on every paint, so the pills stay honest as the shift
   // runs on without re-reading anything from Firestore.
   paintOverdueBanner(allRows.filter((r) => !r.closed), now);
+  // Rows are already in hand here, so the reminder's threshold check is free.
+  poke(allRows);
 
   table.clear();
   rows.forEach((r) => {

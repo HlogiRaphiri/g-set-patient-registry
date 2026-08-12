@@ -7,6 +7,7 @@
 
 import { CAPS } from "./firebase-config.js";
 import { startClock, fetchWeather, paintUserChip, initSidebar } from "./app.js";
+import { startJourneyReminder, stopJourneyReminder } from "./journey-reminder.js";
 
 const NAV = [
   { id: "home", href: "home.html", icon: "fa-house", label: "Home", cap: null },
@@ -76,6 +77,14 @@ export async function renderShell(active, profile) {
   initSidebar();
   startClock();
   loadWeatherWidget();
+
+  // Open-journey reminder. Only for roles that can actually close a journey —
+  // prompting a manager to close records they have no rights to close would be
+  // pure noise.
+  if (CAPS[profile?.role]?.closeJourney) {
+    startJourneyReminder(profile);
+    document.querySelector("[data-logout]")?.addEventListener("click", stopJourneyReminder, { once: true });
+  }
 }
 
 function navHTML(n, active) {
