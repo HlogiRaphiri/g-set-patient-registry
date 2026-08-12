@@ -31,7 +31,7 @@
  * summary documents rather than to every message in every thread.
  */
 
-import { db, ROLES } from "./firebase-config.js";
+import { db, COL, ROLES } from "./firebase-config.js";
 import {
   collection, doc, addDoc, deleteDoc, setDoc, getDocs,
   query, where, orderBy, limit, onSnapshot, serverTimestamp,
@@ -162,6 +162,43 @@ export function subscribeThreads(onThreads, onError) {
     (snap) => onThreads(snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((t) => !isExpired(t))),
     (err) => { if (onError) onError(err); }
   );
+}
+
+/**
+ * Staff the administrator can start a conversation with.
+ *
+ * One read per user document, so this is called only when the picker is opened
+ * — not on every panel open. The list is small (staff, not patients), and the
+ * result is cached for the life of the page.
+ */
+let staffCache = null;
+export async function listChatableStaff() {
+  if (staffCache) return staffCache;
+  const snap = await getDocs(
+    query(collection(db, COL.users), where("role", "==", ROLES?.ECC ?? "ECC Personnel"))
+  );
+  staffCache = snap.docs
+    .map((d) => ({ uid: d.id, ...d.data() }))
+    .filter((u) => !u.disabled)          // a disabled account cannot reply
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  return staffCache;
+}
+
+/**
+ * Open a thread with a member of staff without sending anything yet, so the
+ * conversation appears in the inbox and the recipient's panel.
+ *
+ * The thread is always keyed to the ECC user, never to the administrator —
+ * that keeps one thread per operator no matter who spoke first.
+ */
+export async function ensureThread(threadUid, profile) {
+  await setDoc(threadRef(threadUid), {
+    uid: threadUid,
+    lastFrom: profile?.name || "Unknown",
+    lastRole: profile?.role || "",
+    lastAt: serverTimestamp(),
+    expiresAt: expiryStamp(),
+  }, { merge: true });
 }
 
 export const isAdmin = (profile) => profile?.role === (ROLES?.SUPERUSER ?? "Superuser");

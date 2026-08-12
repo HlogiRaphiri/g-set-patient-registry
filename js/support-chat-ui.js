@@ -8,7 +8,8 @@
  * a user who never uses it costs nothing at all.
  */
 
-import { sendMessage, subscribeThread, subscribeThreads, purgeExpired, isAdmin, chatConfig, sanitise } from "./support-chat.js";
+import { sendMessage, subscribeThread, subscribeThreads, purgeExpired, isAdmin,
+         listChatableStaff, ensureThread, chatConfig, sanitise } from "./support-chat.js";
 import { toast, esc } from "./app.js";
 
 const CSS = `
@@ -85,12 +86,52 @@ function openConversation(uid, title) {
   openThread = uid;
   panel.querySelector(".sc-head h3").textContent = title;
   panel.querySelector('[data-sc="back"]').style.display = isAdmin(myProfile) ? "" : "none";
+  panel.querySelector('[data-sc="new"]').style.display = "none";
   panel.querySelector(".sc-foot").style.display = "flex";
   purgeExpired(uid);
-  unsub = subscribeThread(uid, renderMessages, () => {
-    panel.querySelector(".sc-body").innerHTML =
-      `<div class="sc-empty">Could not load the conversation. Check your connection, then reopen.</div>`;
+  unsub = subscribeThread(uid, renderMessages, (err) => {
+    const denied = String(err?.code || "").includes("permission-denied");
+    panel.querySelector(".sc-body").innerHTML = denied
+      ? `<div class="sc-empty">Chat is not enabled yet — the Firestore security rules for
+         <code>supportThreads</code> have not been published. See SUPPORT-CHAT-RULES.md.</div>`
+      : `<div class="sc-empty">Could not load the conversation.<br><small>${esc(err?.code || err?.message || "Unknown error")}</small></div>`;
+    console.error("[support-chat] message listener failed:", err);
   });
+}
+
+/**
+ * Staff picker: lets the administrator start a conversation rather than only
+ * replying to one. Opened from the inbox.
+ */
+async function openStaffPicker() {
+  if (unsub) { unsub(); unsub = null; }
+  openThread = null;
+  panel.querySelector(".sc-head h3").textContent = "Message a user";
+  panel.querySelector('[data-sc="new"]').style.display = "none";
+  panel.querySelector('[data-sc="back"]').style.display = "";
+  panel.querySelector(".sc-foot").style.display = "none";
+
+  const body = panel.querySelector(".sc-body");
+  body.innerHTML = `<div class="sc-empty">Loading staff…</div>`;
+  try {
+    const staff = await listChatableStaff();
+    if (!staff.length) { body.innerHTML = `<div class="sc-empty">No active ECC personnel found.</div>`; return; }
+    body.innerHTML = "";
+    staff.forEach((u) => {
+      const b = el("button", "sc-thread",
+        `${esc(u.name || "Unnamed")}<span>${esc(u.district || u.email || "")}</span>`);
+      b.addEventListener("click", async () => {
+        // Create the thread first, so it shows in the inbox even if the
+        // administrator closes the panel before typing anything.
+        try { await ensureThread(u.uid, myProfile); } catch { /* rules will surface it */ }
+        openConversation(u.uid, u.name || "Conversation");
+      });
+      body.appendChild(b);
+    });
+  } catch (err) {
+    body.innerHTML = `<div class="sc-empty">Could not load staff.<br><small>${esc(err?.code || err?.message || "Unknown error")}</small></div>`;
+    console.error("[support-chat] staff list failed:", err);
+  }
 }
 
 function openInbox() {
@@ -98,6 +139,7 @@ function openInbox() {
   openThread = null;
   panel.querySelector(".sc-head h3").textContent = "Support requests";
   panel.querySelector('[data-sc="back"]').style.display = "none";
+  panel.querySelector('[data-sc="new"]').style.display = "";
   panel.querySelector(".sc-foot").style.display = "none";
   unsub = subscribeThreads((threads) => {
     const body = panel.querySelector(".sc-body");
@@ -112,7 +154,16 @@ function openInbox() {
       b.addEventListener("click", () => openConversation(t.id, t.lastFrom || "Conversation"));
       body.appendChild(b);
     });
-  }, () => {});
+  }, (err) => {
+    // A silent failure here leaves an empty panel and no explanation, which is
+    // indistinguishable from "no requests". Say what actually happened.
+    const denied = String(err?.code || "").includes("permission-denied");
+    panel.querySelector(".sc-body").innerHTML = denied
+      ? `<div class="sc-empty">Chat is not enabled yet — the Firestore security rules for
+         <code>supportThreads</code> have not been published. See SUPPORT-CHAT-RULES.md.</div>`
+      : `<div class="sc-empty">Could not load support requests.<br><small>${esc(err?.code || err?.message || "Unknown error")}</small></div>`;
+    console.error("[support-chat] thread listener failed:", err);
+  });
 }
 
 async function send() {
@@ -159,6 +210,7 @@ export function mountSupportChat(profile) {
   panel.innerHTML = `
     <div class="sc-head">
       <h3>Support</h3>
+      <button type="button" data-sc="new" title="Message a user" style="display:none"><i class="fa-solid fa-pen-to-square"></i></button>
       <button type="button" data-sc="back" title="Back to requests" style="display:none"><i class="fa-solid fa-arrow-left"></i></button>
       <button type="button" data-sc="close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
     </div>
@@ -190,6 +242,7 @@ export function mountSupportChat(profile) {
     const act = e.target.closest("[data-sc]")?.dataset.sc;
     if (act === "close") { panel.classList.remove("sc-open"); if (unsub) { unsub(); unsub = null; } }
     if (act === "back" && admin) openInbox();
+    if (act === "new" && admin) openStaffPicker();
   });
 
   panel.querySelector(".sc-foot button").addEventListener("click", send);
