@@ -92,8 +92,8 @@ function openConversation(uid, title) {
   unsub = subscribeThread(uid, renderMessages, (err) => {
     const denied = String(err?.code || "").includes("permission-denied");
     panel.querySelector(".sc-body").innerHTML = denied
-      ? `<div class="sc-empty">Chat is not enabled yet — the Firestore security rules for
-         <code>supportThreads</code> have not been published. See SUPPORT-CHAT-RULES.md.</div>`
+      ? `<div class="sc-empty">Chat is blocked by the security rules.<br>
+         <small>Check the rules for <code>supportThreads</code> are published, then reload.</small></div>`
       : `<div class="sc-empty">Could not load the conversation.<br><small>${esc(err?.code || err?.message || "Unknown error")}</small></div>`;
     console.error("[support-chat] message listener failed:", err);
   });
@@ -159,8 +159,8 @@ function openInbox() {
     // indistinguishable from "no requests". Say what actually happened.
     const denied = String(err?.code || "").includes("permission-denied");
     panel.querySelector(".sc-body").innerHTML = denied
-      ? `<div class="sc-empty">Chat is not enabled yet — the Firestore security rules for
-         <code>supportThreads</code> have not been published. See SUPPORT-CHAT-RULES.md.</div>`
+      ? `<div class="sc-empty">Support requests are blocked by the security rules.<br>
+         <small>Check the rules for <code>supportThreads</code> are published, then reload.</small></div>`
       : `<div class="sc-empty">Could not load support requests.<br><small>${esc(err?.code || err?.message || "Unknown error")}</small></div>`;
     console.error("[support-chat] thread listener failed:", err);
   });

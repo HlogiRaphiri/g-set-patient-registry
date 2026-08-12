@@ -140,7 +140,25 @@ export async function sendMessage(threadUid, profile, text) {
  * @returns {() => void} unsubscribe
  */
 export function subscribeThread(threadUid, onMessages, onError) {
-  const q = query(msgsRef(threadUid), orderBy("createdAt", "desc"), limit(MAX_HISTORY));
+  // The query MUST filter on expiresAt.
+  //
+  // The security rule allows reading a message only while
+  // `resource.data.expiresAt > request.time`. Firestore cannot evaluate a
+  // per-document condition for a query — it has to be able to prove from the
+  // query itself that every result will satisfy the rule. Without this where()
+  // the whole listener is rejected with permission-denied, which looks exactly
+  // like "the rules were never published".
+  //
+  // The inequality field must also be the first orderBy. That is fine here:
+  // expiresAt is always createdAt + TTL, so ordering by it is equivalent to
+  // ordering by creation time. No composite index is needed, because the
+  // inequality and the sort are on the same field.
+  const q = query(
+    msgsRef(threadUid),
+    where("expiresAt", ">", new Date()),
+    orderBy("expiresAt", "desc"),
+    limit(MAX_HISTORY)
+  );
   return onSnapshot(
     q,
     (snap) => {
