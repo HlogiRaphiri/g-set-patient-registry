@@ -8,6 +8,7 @@
 import { CAPS } from "./firebase-config.js";
 import { startClock, fetchWeather, paintUserChip, initSidebar } from "./app.js";
 import { startJourneyReminder, stopJourneyReminder } from "./journey-reminder.js";
+import { mountSupportChat, unmountSupportChat } from "./support-chat-ui.js";
 
 const NAV = [
   { id: "home", href: "home.html", icon: "fa-house", label: "Home", cap: null },
@@ -84,6 +85,13 @@ export async function renderShell(active, profile) {
   if (CAPS[profile?.role]?.closeJourney) {
     startJourneyReminder(profile);
     document.querySelector("[data-logout]")?.addEventListener("click", stopJourneyReminder, { once: true });
+  }
+
+  // Support channel: ECC personnel and the administrator only. The panel holds
+  // no listener until it is opened, so an unused chat costs nothing.
+  if (["ECC Personnel", "Superuser"].includes(profile?.role)) {
+    mountSupportChat(profile);
+    document.querySelector("[data-logout]")?.addEventListener("click", unmountSupportChat, { once: true });
   }
 }
 

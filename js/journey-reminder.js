@@ -51,7 +51,7 @@ const SPRITE = "assets/paramedic.png";
 /* ---------------------------------------------------------------- styles */
 
 const CSS = `
-.jr-wrap{position:fixed;right:18px;bottom:18px;z-index:1080;width:314px;
+.jr-wrap{position:fixed;right:18px;bottom:84px;z-index:1080;width:314px;
   pointer-events:none;transform:translateX(140%);opacity:0;
   transition:transform .95s cubic-bezier(.22,.9,.3,1),opacity .4s ease}
 .jr-wrap.jr-in{transform:translateX(0);opacity:1}
@@ -102,7 +102,7 @@ const CSS = `
 }
 
 @media (max-width:576px){
-  .jr-wrap{right:8px;bottom:8px;width:min(272px, calc(100vw - 16px))}
+  .jr-wrap{right:8px;bottom:74px;width:min(272px, calc(100vw - 16px))}
   .jr-figure{width:112px}
   .jr-card{width:168px;top:42%}
 }
@@ -211,6 +211,9 @@ async function openCount(known = null) {
 
 async function tick(known = null) {
   if (!running || wrap || document.hidden) return;
+  // The support panel occupies the same corner. Waiting a minute is better than
+  // dropping a paramedic on top of someone mid-sentence.
+  if (document.querySelector(".sc-panel.sc-open")) return;
 
   const s = reminderSettings();
   const count = await openCount(known);
