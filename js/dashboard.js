@@ -1,12 +1,20 @@
 /**
- * dashboard.js — executive dashboard. Loads all patients once, then computes
- * KPIs and eleven Chart.js visualisations from the (optionally filtered) set.
+ * dashboard.js — executive dashboard. Computes KPIs and eleven Chart.js
+ * visualisations from the (optionally filtered) set of records.
+ *
+ * READ COST: the page opens on the last DEFAULT_DAYS days (by incident date)
+ * plus every open journey — not the whole register. Moving the From date back
+ * and pressing Apply loads the wider range; large ranges ask first
+ * (range-load.js). The six-month chart comes from the running monthly totals
+ * (one read) while no other filter is set.
  */
 
 import { requireAuth, countUp, fmtStamp, esc, toast } from "./app.js";
 import { renderShell } from "./layout.js";
-import { getAllPatients, getDistricts, getStations, getVehicles } from "./data-service.js";
-import { writeSnapshot } from "./metrics.js";
+import { getPatientsByDate, countPatientsByDate, getActivePatients, getStations, getVehicles } from "./data-service.js";
+import { refreshSnapshot } from "./metrics.js";
+import { readMonthlyTotals } from "./registry-stats.js";
+import { rangeLoader, daysAgo } from "./range-load.js";
 import * as S from "./stats.js";
 import { overdueSummary, overdueRows, hoursOpen, fmtDuration, thresholds } from "./overdue.js";
 import { rowDistrict, DISTRICTS } from "./districts.js";
@@ -18,7 +26,20 @@ const C = {
 };
 const PALETTE = ["#ff8342", "#38e1ff", "#34d399", "#fbbf24", "#a78bfa", "#fb7185", "#60a5fa", "#f472b6", "#5eead4", "#fdba74"];
 
-let allRows = [];
+const DEFAULT_DAYS = 7;   // ~200 records/day → ~1,400 reads per open
+const DEFAULT_FROM = daysAgo(DEFAULT_DAYS - 1);
+
+let allRows = [];        // records in the loaded date range
+let openRows = [];       // every open journey, whatever its date
+let monthTotals = null;  // all-time referrals per month, from the running totals
+
+const loader = rangeLoader({
+  defaultFrom: DEFAULT_FROM,
+  count: countPatientsByDate,
+  load: async (from, to) => {
+    [allRows, openRows] = await Promise.all([getPatientsByDate(from, to), getActivePatients()]);
+  },
+});
 
 (async () => {
   const { profile } = await requireAuth("viewDashboard");
@@ -29,13 +50,15 @@ let allRows = [];
   Chart.defaults.font.family = "Inter, sans-serif";
   Chart.defaults.plugins.legend.labels.boxWidth = 12;
 
-  const [rows, districts, stations, vehicles] = await Promise.all([
-    getAllPatients(), getDistricts(), getStations(), getVehicles(),
+  document.getElementById("fFrom").value = DEFAULT_FROM;
+  const [, stations, vehicles, months] = await Promise.all([
+    loader.ensure(), getStations(), getVehicles(), readMonthlyTotals().catch(() => null),
   ]);
-  allRows = rows;
+  monthTotals = months;
 
-  // Refresh the public aggregate snapshot from this load (privacy-safe, no PHI).
-  writeSnapshot(rows, { vehicles, stations, districts }).catch(() => {});
+  // Keep the public aggregate snapshot fresh (throttled; reads no patient
+  // records beyond the open journeys).
+  refreshSnapshot().catch(() => {});
 
   // Populate filter dropdowns.
   // Filter options come from the canonical list, not from whatever casing
@@ -44,17 +67,30 @@ let allRows = [];
   fill("fStation", stations.map((s) => s.name).sort());
   fill("fVehicle", vehicles.map((v) => v.registration).sort());
 
-  document.getElementById("applyFilters").addEventListener("click", render);
+  document.getElementById("applyFilters").addEventListener("click", () => applyRange());
   document.getElementById("refreshBtn").addEventListener("click", async () => {
-    allRows = await getAllPatients(); render(); toast("info", "Refreshed", "Latest records loaded.");
+    if (await applyRange({ reload: true })) toast("info", "Refreshed", "Latest records loaded.");
   });
   document.getElementById("clearFilters").addEventListener("click", () => {
-    ["fFrom", "fTo", "fDistrict", "fStation", "fVehicle", "fStatus"].forEach((id) => (document.getElementById(id).value = ""));
-    render();
+    ["fTo", "fDistrict", "fStation", "fVehicle", "fStatus"].forEach((id) => (document.getElementById(id).value = ""));
+    document.getElementById("fFrom").value = DEFAULT_FROM;
+    applyRange();
   });
 
   render();
 })();
+
+/** Load the From/To range if it changed (asking first when it is large), then redraw. */
+async function applyRange(opts) {
+  try {
+    const ok = await loader.ensure(opts);
+    render();
+    return ok;
+  } catch (err) {
+    toast("err", "Couldn’t load records", err.message || "Try again shortly.");
+    return false;
+  }
+}
 
 function fill(id, values) {
   const sel = document.getElementById(id);
@@ -70,10 +106,22 @@ function readFilters() {
 }
 
 function render() {
-  const rows = S.applyFilters(allRows, readFilters());
-  paintKpis(rows);
-  paintCharts(rows);
+  const f = readFilters();
+  const rows = S.applyFilters(allRows, f);
+  // Open journeys are current state, so the date range does not hide them: an
+  // old journey nobody closed is exactly what "Open Too Long" must surface.
+  const openNow = f.status === "Closed" ? [] : S.applyFilters(openRows, { ...f, from: "", to: "", status: "" });
+  paintKpis(rows, openNow, f);
+  paintCharts(rows, f);
   paintRecent(rows);
+}
+
+/** "Since 2026-10-26", "2026-10-01 to 2026-10-31", "All time"… for the Total card. */
+function rangeLabel(f) {
+  if (f.from && f.to) return `${f.from} to ${f.to}`;
+  if (f.from) return `Since ${f.from}`;
+  if (f.to) return `Up to ${f.to}`;
+  return "All time";
 }
 
 /* ---------------------------------------------------------------- KPIs */
@@ -106,12 +154,12 @@ function overdueCard(rows) {
   return { label: "Open Too Long", icon: "fa-hourglass-half", value: total, foot };
 }
 
-function paintKpis(rows) {
+function paintKpis(rows, openNow, f) {
   const k = S.kpis(rows);
   const cards = [
-    { label: "Total Patients", icon: "fa-users", value: k.total },
-    { label: "Active Journeys", icon: "fa-satellite-dish", value: k.active },
-    overdueCard(rows),
+    { label: "Total Patients", icon: "fa-users", value: k.total, foot: rangeLabel(f) },
+    { label: "Active Journeys", icon: "fa-satellite-dish", value: openNow.length },
+    overdueCard(openNow),
     { label: "Completed", icon: "fa-circle-check", value: k.completed },
     { label: "Patients Today", icon: "fa-calendar-day", value: k.today },
     { label: "Avg Transport", icon: "fa-stopwatch", value: k.avgTransport, suffix: " min", text: k.avgTransport == null ? "—" : null },
@@ -150,14 +198,33 @@ function mk(id, cfg) {
   CH[id] = new Chart(el, cfg);
 }
 
-function paintCharts(rows) {
-  const daily = S.dailyTrend(rows, 14);
+/** Six-month series from the running monthly totals, shaped like S.monthlyTrend(). */
+function monthlyFromTotals(totals, months = 6) {
+  const out = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(); d.setMonth(d.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    out.push([d.toLocaleDateString("en-ZA", { month: "short", year: "2-digit" }), totals[key] || 0]);
+  }
+  return out;
+}
+
+function paintCharts(rows, f) {
+  // 14 days, or fewer when a shorter range is loaded — days before the range
+  // would otherwise show as false zeros.
+  const today = new Date().toISOString().slice(0, 10);
+  const rangeDays = f.from ? Math.round((new Date(f.to || today) - new Date(f.from)) / 86400000) + 1 : 14;
+  const daily = S.dailyTrend(rows, Math.max(1, Math.min(14, rangeDays)));
   mk("cDaily", { type: "line", data: { labels: daily.map((x) => x[0]), datasets: [{ label: "Patients", data: daily.map((x) => x[1]), borderColor: C.ems, backgroundColor: "rgba(255,131,66,.15)", fill: true, tension: .35, pointRadius: 2 }] }, options: { plugins: { legend: { display: false } } } });
 
   const k = S.kpis(rows);
   mk("cStatus", { type: "doughnut", _noScales: true, data: { labels: ["Active", "Closed"], datasets: [{ data: [k.active, k.completed], backgroundColor: [C.cyan, C.grey], borderWidth: 0 }] }, options: { cutout: "62%", plugins: { legend: { position: "bottom" } } } });
 
-  const monthly = S.monthlyTrend(rows, 6);
+  // The loaded range is only DEFAULT_DAYS by default, so with no filter beyond that
+  // default the six months come from the running totals instead. Any explicit
+  // filter switches back to the loaded rows, as before.
+  const unfiltered = f.from === DEFAULT_FROM && !f.to && !f.district && !f.station && !f.vehicle && !f.status;
+  const monthly = monthTotals && unfiltered ? monthlyFromTotals(monthTotals, 6) : S.monthlyTrend(rows, 6);
   mk("cMonthly", { type: "bar", data: { labels: monthly.map((x) => x[0]), datasets: [{ label: "Patients", data: monthly.map((x) => x[1]), backgroundColor: C.ems2, borderRadius: 6 }] }, options: { plugins: { legend: { display: false } } } });
 
   // Normalised so one district cannot appear twice in different casing.

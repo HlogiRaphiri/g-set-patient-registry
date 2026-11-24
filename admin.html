@@ -146,6 +146,17 @@
             <div class="kpi-grid" id="countGrid"></div>
           </div>
         </div>
+        <div class="col-lg-6">
+          <div class="glass panel">
+            <h3 style="font-size:1.05rem">Dashboard Statistics</h3>
+            <p class="text-dim">The public dashboard is built from running totals that every capture, close and vehicle correction updates. Rebuild them once after this update is deployed, and again whenever the check reports a mismatch. A rebuild reads every patient record once, so run it at a quiet hour.</p>
+            <div class="d-flex gap-2 flex-wrap">
+              <button class="btn btn-ghost" id="statsCheckBtn"><i class="fa-solid fa-scale-balanced me-1"></i>Check Statistics</button>
+              <button class="btn btn-ems" id="statsRebuildBtn"><i class="fa-solid fa-arrows-rotate me-1"></i>Rebuild Statistics</button>
+            </div>
+            <pre id="statsLog" class="mono mt-3 p-3" style="background:rgba(6,11,28,.6);border-radius:10px;max-height:220px;overflow:auto;font-size:.8rem;color:var(--cyan-400)"></pre>
+          </div>
+        </div>
       </div>
     </section>
 

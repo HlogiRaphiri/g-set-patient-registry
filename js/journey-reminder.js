@@ -12,14 +12,14 @@
  * exactly as drawn, and the placard is positioned clear of it by construction.
  *
  * READ COST
- * The open-journey count comes from getActivePatients(), a `closed == false`
- * query that bills one read per OPEN journey — not per record in the register.
- * It is called at most once every COUNT_MIN_MS, and the result is shared with
- * any caller that already has rows loaded (see poke()). On a 12-hour shift this
- * is tens of reads, not thousands.
+ * The open-journey count comes from getActiveCount(), a count aggregation over
+ * `closed == false` that bills one read per 1,000 matches — so one read, not
+ * one per open journey. It is called at most once every COUNT_MIN_MS, and is
+ * skipped entirely when a caller already has rows loaded (see poke()). On a
+ * 12-hour shift this is at most 144 reads per open tab.
  */
 
-import { getActivePatients } from "./data-service.js";
+import { getActiveCount } from "./data-service.js";
 
 /* ------------------------------------------------------------- settings */
 
@@ -45,7 +45,7 @@ export function setReminderSettings(patch) {
   return next;
 }
 
-const COUNT_MIN_MS = 60000;   // never re-query the open count more often than this
+const COUNT_MIN_MS = 300000;  // never re-query the open count more often than this (5 min)
 const SPRITE = "assets/paramedic.png";
 
 /* ---------------------------------------------------------------- styles */
@@ -199,8 +199,7 @@ async function openCount(known = null) {
   }
   if (Date.now() - lastCountAt < COUNT_MIN_MS) return lastCount;
   try {
-    const open = await getActivePatients();
-    lastCount = open.length;
+    lastCount = await getActiveCount();
     lastCountAt = Date.now();
   } catch {
     // A failed count must never surface as an error to the operator. Keep the

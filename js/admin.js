@@ -15,6 +15,8 @@ import { renderShell } from "./layout.js";
 import { getDistricts, getStations, getFacilities, getVehicles, invalidate } from "./data-service.js";
 import { seedAll, seedVehicles, collectionCount } from "./seed.js";
 import { runBackup, estimateReads, canBackup } from "./backup-export.js";
+import { rebuildStatistics, checkStatistics } from "./registry-stats.js";
+import { refreshSnapshot } from "./metrics.js";
 
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
@@ -50,6 +52,7 @@ let usersTable, facTable, vehTable, auditTable, districts = [], stations = [];
   wireFacilities();
   wireVehicles();
   wireSetup();
+  wireStats();
   wireBackup(profile);
 
   loadUsers();
@@ -318,6 +321,63 @@ function wireSetup() {
       append("✗ " + err.message);
       toast("err", "Import failed", err.message);
     } finally { btn.disabled = false; }
+  });
+}
+
+/* ------------------------------------------------------------- Statistics */
+/**
+ * Running totals behind the public dashboard (registry-stats.js).
+ * Check: compares them with the register — ~3 reads.
+ * Rebuild: recomputes them from every patient record — one read per record.
+ */
+function wireStats() {
+  const checkBtn = document.getElementById("statsCheckBtn");
+  const rebuildBtn = document.getElementById("statsRebuildBtn");
+  const log = document.getElementById("statsLog");
+  if (!checkBtn || !rebuildBtn || !log) return;
+  const append = (m) => { log.textContent += m + "\n"; log.scrollTop = log.scrollHeight; };
+  const fmt = (n) => n.toLocaleString("en-ZA");
+
+  checkBtn.addEventListener("click", async () => {
+    checkBtn.disabled = true; log.textContent = "";
+    try {
+      const s = await checkStatistics();
+      if (!s.builtAt) {
+        append("Statistics have not been built yet. Run Rebuild Statistics.");
+        append(`The register holds ${fmt(s.total)} records.`);
+        return;
+      }
+      append(`Last rebuilt: ${fmtStamp(s.builtAt)}`);
+      append(`Records — register ${fmt(s.total)}, statistics ${fmt(s.statsTotal)}`);
+      append(`Closed  — register ${fmt(s.closed)}, statistics ${fmt(s.statsClosed)}`);
+      append(s.total === s.statsTotal && s.closed === s.statsClosed
+        ? "✓ In step."
+        : "✗ Mismatch — run Rebuild Statistics at a quiet hour.");
+    } catch (err) {
+      append("✗ " + (err?.message || err));
+    } finally { checkBtn.disabled = false; }
+  });
+
+  rebuildBtn.addEventListener("click", async () => {
+    rebuildBtn.disabled = true; log.textContent = "";
+    try {
+      const { total } = await checkStatistics();
+      const ok = await confirmDialog({
+        title: "Rebuild dashboard statistics?",
+        body: `This reads all ${fmt(total)} patient records once (${fmt(total)} of the 50,000 daily reads) and rewrites the running totals. A capture saved while it runs may be missed; run Check Statistics afterwards.`,
+        confirmText: "Rebuild",
+      });
+      if (!ok) { append("Cancelled."); return; }
+      const res = await rebuildStatistics(append);
+      await writeAudit("Statistics Rebuilt", res);
+      append("Publishing the public snapshot…");
+      await refreshSnapshot({ force: true });
+      append("✓ Public snapshot updated.");
+      toast("ok", "Statistics rebuilt", `${fmt(res.records)} records counted.`);
+    } catch (err) {
+      append("✗ " + (err?.message || err));
+      toast("err", "Rebuild failed", err?.message || "Try again shortly.");
+    } finally { rebuildBtn.disabled = false; }
   });
 }
 

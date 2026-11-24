@@ -13,7 +13,7 @@
 import { requireAuth, nextIncidentNumber, writeAudit, toast, fmtYMD, confirmDialog } from "./app.js";
 import { renderShell } from "./layout.js";
 import { getFacilities, getStations, getDistricts, getVehicles, attachAutocomplete, createPatient,
-         findPatientByIncident, getActivePatients } from "./data-service.js";
+         findPatientByIncident, findOpenByPatient } from "./data-service.js";
 import { refreshSnapshot } from "./metrics.js";
 import { canonicalDistrict } from "./districts.js";
 
@@ -27,18 +27,17 @@ const INCIDENT_RE = /^GS-\d{8}-\d{6}$/;
  * Look for an already-open journey that appears to be this same transfer:
  * same patient name, same referring facility, same date.
  *
- * Reads only the open journeys (a `closed == false` query), which is a small
- * set at any moment — not the whole register.
+ * Queries only open journeys for this patient name on this date (equality
+ * filters, served from single-field indexes) — usually 0–1 reads, rather than
+ * reading every open journey on every save. Names are stored UPPERCASE, so the
+ * exact match on patientName is the same comparison as before.
  *
  * @returns {Promise<object|null>} the existing journey, or null
  */
 async function findOpenTwin(payload) {
   try {
-    const open = await getActivePatients();
-    return open.find((r) =>
-      up(r.patientName) === payload.patientName &&
-      up(r.referringFacility) === payload.referringFacility &&
-      r.date === payload.date) || null;
+    const open = await findOpenByPatient(payload.patientName, payload.date);
+    return open.find((r) => up(r.referringFacility) === payload.referringFacility) || null;
   } catch {
     // A failed duplicate check must never block a capture — the patient comes
     // first, and a possible duplicate is a far smaller problem than a refused
