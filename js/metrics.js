@@ -266,7 +266,7 @@ export async function writeSnapshot(stats, open, refs = {}) {
 /**
  * QUOTA NOTE — read this before changing the numbers below.
  *
- * A refresh reads ~35 counter documents (registry-stats.js) plus one read per
+ * A refresh reads ~42 counter documents (registry-stats.js) plus one read per
  * OPEN journey. It no longer reads the register, so its cost stays flat as the
  * register grows. It used to call getAllPatients() — one read per record ever
  * captured, on every capture and close — which is what pushed the project past

@@ -7,16 +7,20 @@
  * refresh cost one read per record ever captured — a cost that grows by ~200
  * every day. Now every capture, close and vehicle correction adds its share to
  * a few counter documents IN THE SAME ATOMIC BATCH as the patient write. A
- * refresh reads ~35 counter documents plus the open journeys, whatever the
+ * refresh reads ~42 counter documents plus the open journeys, whatever the
  * size of the register.
  *
  * DOCUMENTS — all in the `counters` collection, which firestore.rules already
  * lets capture roles create/update and any signed-in user read:
  *   stats-all             all-time totals and name maps, plus byMonth, byWeek,
  *                         vehicleLast (last trip per vehicle), firstDate, builtAt
- *   stats-routes          all-time referring→receiving pairs and coordinates
- *                         (kept apart from stats-all because it is the part that
- *                         grows, and a document is capped at 1 MiB)
+ *   stats-routes-0 … -7   all-time referring→receiving pairs and coordinates,
+ *                         split into ROUTE_SHARDS documents by referring
+ *                         facility. Routes are the part that grows: at ~9,600
+ *                         records they already total ~630 KB, and a document
+ *                         is capped at 1 MiB — a full one would make every
+ *                         capture's batch fail. (The single "stats-routes"
+ *                         document of the first release is retired.)
  *   stats-day-YYYY-MM-DD  one per incident `date` — the field the today / 7-day /
  *                         30-day scopes have always filtered on
  *   stats-shift-<shiftId> one per 12-hour shift, by capture time
@@ -40,15 +44,24 @@
  * readStatsBuckets() returns null and the public snapshot is left untouched.
  */
 
-import { db, COL } from "./firebase-config.js";
+import { db, auth, firebaseConfig, COL } from "./firebase-config.js";
 import { rowDistrict } from "./districts.js";
 import { currentShift, shiftId } from "./shifts.js";
 import {
-  collection, doc, getDoc, getDocs, query, where, documentId, writeBatch, increment, getCountFromServer,
+  collection, doc, getDoc, getDocs, query, where, documentId, increment, getCountFromServer,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 export const STATS_ALL = "stats-all";
-export const STATS_ROUTES = "stats-routes";
+/** First-release single routes document; the rebuild empties it. */
+const STATS_ROUTES_RETIRED = "stats-routes";
+const ROUTE_SHARDS = 8;
+const ROUTES_PREFIX = "stats-routes-";
+/** The routes shard for a referring facility (stable string hash). */
+export function routesId(referringFacility) {
+  let h = 0;
+  for (const ch of String(referringFacility)) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return ROUTES_PREFIX + (h % ROUTE_SHARDS);
+}
 const DAY_PREFIX = "stats-day-";
 const DAY = 86400000, HR = 3600000;
 
@@ -214,7 +227,7 @@ export function captureDeltas(row, created, deltas = new Deltas()) {
   const shift = created ? shiftDocId(created) : null;
 
   deltas.add(STATS_ALL, base);
-  if (route) deltas.add(STATS_ROUTES, route);
+  if (route) deltas.add(routesId(row.referringFacility), route);
   for (const id of [day, shift]) {
     if (!id) continue;
     deltas.add(id, base);
@@ -266,7 +279,7 @@ export function vehicleDeltas(row, oldV, newV, when = new Date()) {
   const from = vehicleLabel(oldV), to = vehicleLabel(newV);
   if (g?.ok && from !== to) {
     const rv = { [fkey(from)]: -1, [fkey(to)]: 1 };
-    [STATS_ROUTES, ...buckets].forEach((id) => deltas.add(id, { routes: { [routeKey(g.a, g.b)]: { v: rv } } }));
+    [routesId(g.a), ...buckets].forEach((id) => deltas.add(id, { routes: { [routeKey(g.a, g.b)]: { v: rv } } }));
   }
 
   // Last-trip time drives the "inactive vehicle" alert (12 h). Only a recent
@@ -336,10 +349,9 @@ export function mergeBuckets(list) {
 }
 
 /**
- * Everything the snapshot needs, in ~35 document reads: stats-all,
- * stats-routes, the current and previous shift, and the last 31 days of day
- * buckets (plus any future-dated ones, which the date scopes have always
- * included).
+ * Everything the snapshot needs, in ~42 document reads: stats-all, the route
+ * shards, the current and previous shift, and the last 31 days of day buckets
+ * (plus any future-dated ones, which the date scopes have always included).
  *
  * @returns {Promise<object|null>} null until a rebuild has stamped builtAt
  */
@@ -353,7 +365,9 @@ export async function readStatsBuckets(now = new Date()) {
   const prev = currentShift(new Date(cs.start.getTime() - 1));
   const since = ymd(new Date(now.getTime() - 31 * DAY));
   const [routesSnap, curSnap, prevSnap, daysSnap] = await Promise.all([
-    getDoc(doc(col, STATS_ROUTES)),
+    // "stats-routes." sorts after every "stats-routes-N" id (and the retired
+    // "stats-routes" sorts before them), so this returns exactly the shards.
+    getDocs(query(col, where(documentId(), ">=", ROUTES_PREFIX), where(documentId(), "<", "stats-routes."))),
     getDoc(doc(col, shiftDocId(cs.start))),
     getDoc(doc(col, shiftDocId(prev.start))),
     // "stats-day." sorts after every "stats-day-…" id, so this is an open-ended range.
@@ -361,7 +375,7 @@ export async function readStatsBuckets(now = new Date()) {
   ]);
 
   const all = normalize(allRaw);
-  const routes = normalize(routesSnap.exists() ? routesSnap.data() : {});
+  const routes = mergeBuckets(routesSnap.docs.map((d) => normalize(d.data())));
   all.routes = routes.routes;
   all.geo = routes.geo;
 
@@ -411,7 +425,9 @@ export async function rebuildStatistics(onProgress = () => {}) {
   onProgress(`${rows.length.toLocaleString("en-ZA")} records read. Building statistics…`);
 
   const deltas = new Deltas();
-  deltas.add(STATS_ALL, { total: 0 }).add(STATS_ROUTES, { routes: {} });
+  deltas.add(STATS_ALL, { total: 0 });
+  // Empty the first release's single routes document so it stops taking space.
+  deltas.add(STATS_ROUTES_RETIRED, { retired: put(true) });
   let firstDate = null, skipped = 0;
   for (const r of rows) {
     // Build each record's contribution separately, so one malformed record is
@@ -436,13 +452,73 @@ export async function rebuildStatistics(onProgress = () => {}) {
 
   const docs = [...deltas.docs].map(([id, d]) => [id, fold({}, d, true)]);
   onProgress(`Writing ${docs.length.toLocaleString("en-ZA")} statistics documents…`);
-  for (let i = 0; i < docs.length; i += 400) {
-    const batch = writeBatch(db);
-    docs.slice(i, i + 400).forEach(([id, data]) => batch.set(doc(db, COL.counters, id), data)); // overwrite, not merge
-    await batch.commit();
-  }
+  await commitOverwrites(docs, onProgress);
   onProgress("✓ Statistics rebuilt.");
   return { records: rows.length, documents: docs.length, skipped };
+}
+
+/* ------------------------------------------------- direct REST writes */
+/*
+ * WHY THE REBUILD DOES NOT USE writeBatch()
+ * The SDK saves every pending write in the browser's IndexedDB before sending
+ * it (persistentLocalCache in firebase-config.js). The rebuild's write is
+ * megabytes of counters, and Chrome refused to store it — "Failed to persist
+ * write: IndexedDbTransactionError", in a normal window and in Incognito — so
+ * the rebuild could never complete. These writes go straight to the Firestore
+ * REST API instead, signed with the user's own ID token, so firestore.rules
+ * apply exactly as they do to the SDK. Live captures and closes are small and
+ * still use the SDK batch.
+ */
+const REST_MAX_WRITES = 300;          // Firestore allows 500 per commit
+const REST_MAX_BYTES = 4 * 1024 * 1024; // the request limit is 10 MiB
+
+/** JS value → Firestore REST Value. */
+function restValue(v) {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (v instanceof Date) return { timestampValue: v.toISOString() };
+  if (typeof v === "boolean") return { booleanValue: v };
+  if (typeof v === "number") return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (typeof v === "string") return { stringValue: v };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(restValue) } };
+  return { mapValue: { fields: restFields(v) } };
+}
+function restFields(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) out[k] = restValue(v);
+  return out;
+}
+
+/** Overwrite counter documents in as few REST commits as the limits allow. */
+async function commitOverwrites(docs, onProgress) {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Not signed in.");
+  const base = `projects/${firebaseConfig.projectId}/databases/(default)/documents`;
+  const writes = docs.map(([id, data]) => ({ update: { name: `${base}/${COL.counters}/${id}`, fields: restFields(data) } }));
+
+  const chunks = [];
+  let cur = [], bytes = 0;
+  for (const w of writes) {
+    const size = JSON.stringify(w).length;
+    if (cur.length && (cur.length >= REST_MAX_WRITES || bytes + size > REST_MAX_BYTES)) { chunks.push(cur); cur = []; bytes = 0; }
+    cur.push(w); bytes += size;
+  }
+  if (cur.length) chunks.push(cur);
+
+  for (let i = 0; i < chunks.length; i++) {
+    const token = await user.getIdToken();
+    const res = await fetch(`https://firestore.googleapis.com/v1/${base}:commit`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ writes: chunks[i] }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const err = new Error(body?.error?.message || `Firestore returned HTTP ${res.status}`);
+      err.code = String(body?.error?.status || "").toLowerCase().replace(/_/g, "-"); // e.g. "resource-exhausted"
+      throw err;
+    }
+    if (chunks.length > 1) onProgress(`  part ${i + 1} of ${chunks.length} written`);
+  }
 }
 
 /**
