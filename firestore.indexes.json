@@ -1,4 +1,16 @@
 {
   "indexes": [],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    { "collectionGroup": "counters", "fieldPath": "byDistrict", "indexes": [] },
+    { "collectionGroup": "counters", "fieldPath": "byReferring", "indexes": [] },
+    { "collectionGroup": "counters", "fieldPath": "byReceiving", "indexes": [] },
+    { "collectionGroup": "counters", "fieldPath": "byStation", "indexes": [] },
+    { "collectionGroup": "counters", "fieldPath": "byVehicle", "indexes": [] },
+    { "collectionGroup": "counters", "fieldPath": "routes", "indexes": [] },
+    { "collectionGroup": "counters", "fieldPath": "geo", "indexes": [] },
+    { "collectionGroup": "counters", "fieldPath": "byDate", "indexes": [] },
+    { "collectionGroup": "counters", "fieldPath": "byMonth", "indexes": [] },
+    { "collectionGroup": "counters", "fieldPath": "byWeek", "indexes": [] },
+    { "collectionGroup": "counters", "fieldPath": "vehicleLast", "indexes": [] }
+  ]
 }

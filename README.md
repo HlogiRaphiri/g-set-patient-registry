@@ -167,6 +167,10 @@ timeDelivered, closedBy, closedAt        // set only on close
 **`districts/{id}`** — `name`
 **`vehicles/{id}`** — `registration, district, type`
 **`counters/incident-YYYYMMDD`** — `value, ymd` (drives incident numbering)
+**`counters/stats-*`** — running totals behind the public dashboard
+(`stats-all`, `stats-routes`, `stats-day-YYYY-MM-DD`, `stats-shift-<date>-day|night`).
+Updated in the same atomic batch as every capture, close and vehicle correction;
+see `js/registry-stats.js`.
 **`auditLogs/{autoId}`** — `action, details, actorUid, actorName, actorEmail, actorRole, at`
 
 ### Incident numbers
@@ -193,6 +197,23 @@ record (or re-open one) is rejected.
   every page load (the user is signed out immediately). To also disable the
   account at the Firebase Auth level, toggle it in **Authentication → Users**.
 - **Password resets** use Firebase's built-in `sendPasswordResetEmail`.
+- **Read budget (50,000/day).** No page reads the whole register on open:
+  - The public snapshot is rebuilt from the `counters/stats-*` running totals
+    plus the open journeys (~35 + open reads), at most once per 30 minutes per
+    browser.
+  - The journey reminder uses a count query (1 read) at most every 5 minutes.
+  - Journeys loads every open journey plus the newest 300; "Load older journeys"
+    pages further back.
+  - Dashboard, Heatmaps and Reports open on the last 7 days (about 1,400 reads
+    each). Widening the dates loads more, and ranges over 5,000 records ask first.
+- **Statistics rebuild.** After first deploying the running totals, or if
+  **Admin → System Setup → Check Statistics** reports a mismatch, run
+  **Rebuild Statistics** at a quiet hour. It reads every patient record once.
+  Until the first rebuild, the public snapshot is left as it was.
+- **Index exemptions.** `firestore.indexes.json` exempts the counter maps from
+  indexing (keeps the large `stats-routes` document under Firestore's 40,000
+  index-entry limit). Deploy it with
+  `firebase deploy --only firestore:indexes`.
 
 ---
 

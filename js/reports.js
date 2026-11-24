@@ -1,14 +1,28 @@
 /**
  * reports.js — filterable patient register with CSV, Excel, PDF and Print
  * exports. Exports respect the active filters and are audit-logged.
+ *
+ * READ COST: the page opens on the last DEFAULT_DAYS days (by incident date),
+ * not the whole register. Widening From/To and pressing Apply loads that range;
+ * large ranges show their read cost and ask first (range-load.js).
  */
 
 import { requireAuth, fmtStamp, esc, toast, writeAudit } from "./app.js";
 import { renderShell } from "./layout.js";
-import { getAllPatients, getDistricts, getStations } from "./data-service.js";
+import { getPatientsByDate, countPatientsByDate, getDistricts, getStations } from "./data-service.js";
 import { applyFilters } from "./stats.js";
+import { rangeLoader, daysAgo } from "./range-load.js";
+
+const DEFAULT_DAYS = 7;
+const DEFAULT_FROM = daysAgo(DEFAULT_DAYS - 1);
 
 let table, allRows = [];
+
+const loader = rangeLoader({
+  defaultFrom: DEFAULT_FROM,
+  count: countPatientsByDate,
+  load: async (from, to) => { allRows = await getPatientsByDate(from, to); },
+});
 const COLS = ["incidentNumber", "date", "patientName", "age", "gender", "district", "station", "vehicle", "referringFacility", "receivingFacility", "diagnosis", "status"];
 const HEAD = ["Incident", "Date", "Patient", "Age", "Gender", "District", "Station", "Vehicle", "Referring", "Receiving", "Diagnosis", "Status", "Delivered"];
 
@@ -17,15 +31,19 @@ const HEAD = ["Incident", "Date", "Patient", "Age", "Gender", "District", "Stati
   await renderShell("reports", profile);
   document.getElementById("pageContent").appendChild(document.getElementById("pageTpl").content.cloneNode(true));
 
-  const [rows, districts, stations] = await Promise.all([getAllPatients(), getDistricts(), getStations()]);
-  allRows = rows;
+  document.getElementById("fFrom").value = DEFAULT_FROM;
+  const [, districts, stations] = await Promise.all([loader.ensure(), getDistricts(), getStations()]);
 
   fill("fDistrict", districts.map((d) => d.name).sort());
   fill("fStation", stations.map((s) => s.name).sort());
 
   table = $("#repTable").DataTable({ pageLength: 25, order: [[1, "desc"]], language: { search: "", searchPlaceholder: "Filter…" } });
 
-  document.getElementById("applyBtn").addEventListener("click", render);
+  document.getElementById("applyBtn").addEventListener("click", async () => {
+    try { await loader.ensure(); }
+    catch (err) { toast("err", "Couldn’t load records", err.message || "Try again shortly."); }
+    render();
+  });
   document.getElementById("exCsv").addEventListener("click", exportCsv);
   document.getElementById("exXlsx").addEventListener("click", exportXlsx);
   document.getElementById("exPdf").addEventListener("click", exportPdf);

@@ -7,9 +7,10 @@
 
 import { db, COL } from "./firebase-config.js";
 import {
-  collection, getDocs, getDocsFromCache, query, where, orderBy, limit,
-  doc, setDoc, getDoc, updateDoc, addDoc, serverTimestamp,
+  collection, getDocs, getDocsFromCache, getCountFromServer, query, where, orderBy, limit, startAfter,
+  doc, getDoc, writeBatch, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { applyDeltas, captureDeltas, closeDeltas, vehicleDeltas } from "./registry-stats.js";
 
 const cache = {};
 // Collections that must be re-read from the server on their next load (e.g.
@@ -53,14 +54,26 @@ export const getVehicles = () => loadCollection(COL.vehicles);
 
 /* --------------------------------------------------------------- Patients */
 
+/*
+ * Every patient write below goes in ONE atomic batch with its running-totals
+ * update (registry-stats.js), so the public dashboard's totals can never drift
+ * from the register: if the rules reject the patient write, the counter
+ * changes are discarded with it. The counters use increment(), so the batch
+ * needs no extra reads.
+ */
+
 export async function createPatient(data) {
-  const ref = await addDoc(collection(db, COL.patients), {
+  const ref = doc(collection(db, COL.patients));
+  const batch = writeBatch(db);
+  batch.set(ref, {
     ...data,
     status: "Active",
     closed: false,
     timeDelivered: null,
     createdAt: serverTimestamp(),
   });
+  applyDeltas(batch, captureDeltas(data, new Date()));
+  await batch.commit();
   return ref.id;
 }
 
@@ -77,13 +90,18 @@ export async function closeJourney(id, actor) {
   const cur = await getDoc(ref);
   if (!cur.exists()) throw new Error("Record not found.");
   if (cur.data().closed) throw new Error("This journey is already closed and locked.");
-  await updateDoc(ref, {
+  // Two people closing the same journey at once: the second batch fails the
+  // rules' isCloseTransition() check, so it is not counted twice either.
+  const batch = writeBatch(db);
+  batch.update(ref, {
     status: "Closed",
     closed: true,
     timeDelivered: serverTimestamp(),
     closedBy: actor,
     closedAt: serverTimestamp(),
   });
+  applyDeltas(batch, closeDeltas(cur.data(), new Date()));
+  await batch.commit();
 }
 
 /**
@@ -98,23 +116,101 @@ export async function updateVehicleRegistration(id, vehicle, actorName) {
   const ref = doc(db, COL.patients, id);
   const cur = await getDoc(ref);
   if (!cur.exists()) throw new Error("Record not found.");
-  await updateDoc(ref, {
+  const row = cur.data();
+  const batch = writeBatch(db);
+  batch.update(ref, {
     vehicle: reg,
     vehicleUpdatedAt: serverTimestamp(),
     vehicleUpdatedBy: actorName || "",
   });
+  if ((row.vehicle || "") !== reg) applyDeltas(batch, vehicleDeltas(row, row.vehicle || "", reg, new Date()));
+  await batch.commit();
   return reg;
 }
 
+/** Newest first, by capture time. */
+const byNewest = (rows) => rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+
+/** Combine row lists (e.g. a date range plus the open journeys), one row per id, newest first. */
+export function mergeRows(...lists) {
+  const m = new Map();
+  lists.forEach((l) => (l || []).forEach((r) => m.set(r.id, r)));
+  return byNewest([...m.values()]);
+}
+
+/**
+ * The ENTIRE register — one read per record ever captured. Kept for one-off
+ * jobs only; no page loads this on open any more.
+ */
 export async function getAllPatients() {
   const snap = await getDocs(query(collection(db, COL.patients), orderBy("createdAt", "desc")));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return mapSnap(snap);
+}
+
+/* Date-range loaders. Each costs one read per record returned; the count
+ * versions cost one read per 1,000, so a page can say what a range will cost
+ * before loading it. `from`/`to` are "YYYY-MM-DD" (inclusive) and optional.
+ * Single-field ranges only — no composite index needed. */
+function byDateQuery(from, to) {
+  const cons = [];
+  if (from) cons.push(where("date", ">=", from));
+  if (to) cons.push(where("date", "<=", to));
+  return query(collection(db, COL.patients), ...cons);
+}
+/** Records whose incident `date` falls in the range. */
+export async function getPatientsByDate(from, to) { return byNewest(mapSnap(await getDocs(byDateQuery(from, to)))); }
+export async function countPatientsByDate(from, to) { return (await getCountFromServer(byDateQuery(from, to))).data().count; }
+
+function byCreatedQuery(from, to) {
+  const cons = [];
+  if (from) cons.push(where("createdAt", ">=", from));
+  if (to) cons.push(where("createdAt", "<=", to));
+  return query(collection(db, COL.patients), ...cons);
+}
+/** Records CAPTURED between two Dates (either may be null). */
+export async function getPatientsCreatedBetween(from, to) { return byNewest(mapSnap(await getDocs(byCreatedQuery(from, to)))); }
+export async function countPatientsCreatedBetween(from, to) { return (await getCountFromServer(byCreatedQuery(from, to))).data().count; }
+
+/**
+ * One page of the register, newest first.
+ * @param {{pageSize?: number, after?: object|null}} opts `after` is the cursor
+ *        returned by the previous page
+ * @returns {Promise<{rows: object[], cursor: object|null, done: boolean}>}
+ */
+export async function getRecentPatients({ pageSize = 300, after = null } = {}) {
+  const cons = [orderBy("createdAt", "desc")];
+  if (after) cons.push(startAfter(after));
+  cons.push(limit(pageSize));
+  const snap = await getDocs(query(collection(db, COL.patients), ...cons));
+  return { rows: mapSnap(snap), cursor: snap.docs[snap.docs.length - 1] || null, done: snap.size < pageSize };
+}
+
+/**
+ * Open journeys for one patient on one date — the duplicate-capture check.
+ * Equality filters only, so Firestore serves it from single-field indexes:
+ * typically 0–1 reads, instead of reading every open journey.
+ */
+export async function findOpenByPatient(patientName, date) {
+  const snap = await getDocs(query(collection(db, COL.patients),
+    where("closed", "==", false), where("patientName", "==", patientName), where("date", "==", date)));
+  return mapSnap(snap);
 }
 
 export async function getActivePatients() {
   const snap = await getDocs(query(collection(db, COL.patients), where("closed", "==", false)));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
     .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+}
+
+/**
+ * Number of open journeys, without downloading them. A count aggregation bills
+ * one read per 1,000 matching index entries (minimum one), so this costs a
+ * single read while fewer than 1,000 journeys are open.
+ * @returns {Promise<number>}
+ */
+export async function getActiveCount() {
+  const snap = await getCountFromServer(query(collection(db, COL.patients), where("closed", "==", false)));
+  return snap.data().count;
 }
 
 /* ----------------------------------------------------------- Autocomplete */

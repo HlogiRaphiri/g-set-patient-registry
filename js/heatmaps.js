@@ -4,11 +4,28 @@
  * a heat layer + circle markers, and lets the user switch between patient
  * pickup density (referring facilities), receiving-facility density, and raw
  * healthcare-facility density, filtered by district and date range.
+ *
+ * READ COST: the page opens on journeys captured in the last DEFAULT_DAYS
+ * days, not the whole register. Widening From/To and pressing Apply loads that
+ * range; large ranges show their read cost and ask first (range-load.js).
  */
 
-import { requireAuth, esc } from "./app.js";
+import { requireAuth, esc, toast } from "./app.js";
 import { renderShell } from "./layout.js";
-import { getFacilities, getAllPatients } from "./data-service.js";
+import { getFacilities, getPatientsCreatedBetween, countPatientsCreatedBetween } from "./data-service.js";
+import { rangeLoader, daysAgo } from "./range-load.js";
+
+const DEFAULT_DAYS = 7;   // ~200 records/day → ~1,400 reads per open
+const DEFAULT_FROM = daysAgo(DEFAULT_DAYS - 1);
+// Same day boundaries as filtered() below: local midnight to 23:59:59.
+const startOf = (v) => (v ? new Date(v + "T00:00:00") : null);
+const endOf = (v) => (v ? new Date(v + "T23:59:59") : null);
+
+const loader = rangeLoader({
+  defaultFrom: DEFAULT_FROM,
+  count: (from, to) => countPatientsCreatedBetween(startOf(from), endOf(to)),
+  load: async (from, to) => { patients = await getPatientsCreatedBetween(startOf(from), endOf(to)); },
+});
 
 // Gauteng centre + sensible default zoom.
 const GAUTENG = [-26.15, 28.05];
@@ -39,7 +56,8 @@ let facilities = [];
   map.invalidateSize();
 
   // Load reference + patient data.
-  [facilities, patients] = await Promise.all([getFacilities(), getAllPatients()]);
+  document.getElementById("fFrom").value = DEFAULT_FROM;
+  [facilities] = await Promise.all([getFacilities(), loader.ensure()]);
 
   // Populate the district filter from whatever districts we actually have data for.
   const districts = [...new Set([
@@ -68,7 +86,11 @@ let facilities = [];
     }));
 
   // Apply filters.
-  document.getElementById("applyBtn").addEventListener("click", draw);
+  document.getElementById("applyBtn").addEventListener("click", async () => {
+    try { await loader.ensure(); }
+    catch (err) { toast("err", "Couldn’t load records", err.message || "Try again shortly."); }
+    draw();
+  });
 
   draw();
 })();

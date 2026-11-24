@@ -7,11 +7,17 @@
  * Captured records are otherwise immutable — the ONE exception is the G-Set
  * vehicle registration, which capture-capable staff (Superuser / ECC) may
  * correct at any time via the Edit-vehicle action. Records can never be deleted.
+ *
+ * READ COST: the page loads every OPEN journey plus the newest PAGE_SIZE
+ * records — not the whole register. "Load older journeys" pages further back,
+ * and typing a full incident number (GS-YYYYMMDD-NNNNNN) fetches that one
+ * record if it is not already loaded.
  */
 
 import { requireAuth, can, applyCapVisibility, fmtStamp, esc, toast, writeAudit } from "./app.js";
 import { renderShell } from "./layout.js";
-import { getAllPatients, closeJourney, updateVehicleRegistration, getVehicles, attachAutocomplete } from "./data-service.js";
+import { getActivePatients, getRecentPatients, findPatientByIncident, mergeRows,
+         closeJourney, updateVehicleRegistration, getVehicles, attachAutocomplete } from "./data-service.js";
 import { refreshSnapshot } from "./metrics.js";
 import { statusPill, overdueSummary, overdueLevel } from "./overdue.js";
 import { poke } from "./journey-reminder.js";
@@ -20,6 +26,10 @@ import { poke } from "./journey-reminder.js";
 const norm = (s) => String(s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
 
 let table, allRows = [], currentTab = "active", canClose = false, canEditVehicle = false, profileRef, editRow = null;
+
+const PAGE_SIZE = 300;
+const INCIDENT_RE = /^GS-\d{8}-\d{6}$/i;
+let olderCursor = null, olderDone = false;
 
 (async () => {
   // Journeys shows individual patient records, so it is gated on viewJourneys
@@ -37,7 +47,9 @@ let table, allRows = [], currentTab = "active", canClose = false, canEditVehicle
   content.appendChild(document.getElementById("pageTpl").content.cloneNode(true));
   applyCapVisibility(profile);
 
-  allRows = await getAllPatients();
+  const [open, recent] = await Promise.all([getActivePatients(), getRecentPatients({ pageSize: PAGE_SIZE })]);
+  allRows = mergeRows(open, recent.rows);
+  olderCursor = recent.cursor; olderDone = recent.done;
 
   table = $("#journeyTable").DataTable({
     order: [[6, "desc"]],
@@ -47,14 +59,16 @@ let table, allRows = [], currentTab = "active", canClose = false, canEditVehicle
   });
 
   document.querySelectorAll("#tabs [data-tab]").forEach((b) =>
-    b.addEventListener("click", () => {
-      document.querySelectorAll("#tabs .nav-link").forEach((x) => x.classList.remove("active"));
-      b.classList.add("active");
-      currentTab = b.dataset.tab;
-      paint();
-    }));
+    b.addEventListener("click", () => selectTab(b.dataset.tab)));
 
-  document.getElementById("quickSearch").addEventListener("input", (e) => table.search(e.target.value).draw());
+  document.getElementById("quickSearch").addEventListener("input", (e) => {
+    table.search(e.target.value).draw();
+    const q = e.target.value.trim().toUpperCase();
+    if (INCIDENT_RE.test(q)) lookupIncident(q);
+  });
+
+  document.getElementById("loadOlder")?.addEventListener("click", loadOlder);
+  paintLoadInfo();
 
   // Wire row actions (event delegation on the table body).
   document.querySelector("#journeyTable tbody").addEventListener("click", (e) => {
@@ -95,6 +109,56 @@ let table, allRows = [], currentTab = "active", canClose = false, canEditVehicle
 
   paint();
 })();
+
+function selectTab(tab) {
+  document.querySelectorAll("#tabs .nav-link").forEach((x) => x.classList.toggle("active", x.dataset.tab === tab));
+  currentTab = tab;
+  paint();
+}
+
+/* ------------------------------------------------------- Paging & lookup */
+
+/** Next page of older records (newest first), PAGE_SIZE reads. */
+async function loadOlder() {
+  const btn = document.getElementById("loadOlder");
+  if (!btn || olderDone) return;
+  btn.disabled = true;
+  try {
+    const page = await getRecentPatients({ pageSize: PAGE_SIZE, after: olderCursor });
+    allRows = mergeRows(allRows, page.rows);
+    if (page.cursor) olderCursor = page.cursor;
+    olderDone = page.done;
+    paint({ preservePage: true });
+  } catch (err) {
+    toast("err", "Couldn’t load older journeys", err.message || "Try again shortly.");
+  } finally {
+    btn.disabled = false;
+    paintLoadInfo();
+  }
+}
+
+/** Under the table: how far back the list goes, and whether there is more. */
+function paintLoadInfo() {
+  const info = document.getElementById("loadInfo");
+  const btn = document.getElementById("loadOlder");
+  if (btn) btn.hidden = olderDone;
+  if (!info) return;
+  const oldest = olderCursor?.data?.().createdAt;
+  info.textContent = olderDone || !oldest
+    ? "All journeys loaded."
+    : `Every open journey, plus closed journeys captured since ${fmtStamp(oldest)}. Type a full incident number to find an older one.`;
+}
+
+/** Fetch one record by incident number when it is older than what is loaded (1 read). */
+async function lookupIncident(num) {
+  if (allRows.some((r) => r.incidentNumber === num)) return;
+  const r = await findPatientByIncident(num).catch(() => null);
+  const box = document.getElementById("quickSearch");
+  if (!r || box.value.trim().toUpperCase() !== num) return;   // nothing found, or the user typed on
+  allRows = mergeRows(allRows, [r]);
+  selectTab(r.closed ? "closed" : "active");
+  table.search(box.value).draw();
+}
 
 function paint(opts = {}) {
   const rows = allRows.filter((r) => (currentTab === "active" ? !r.closed : r.closed));
