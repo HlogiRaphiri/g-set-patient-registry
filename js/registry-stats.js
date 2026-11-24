@@ -450,7 +450,11 @@ export async function rebuildStatistics(onProgress = () => {}) {
   if (skipped) onProgress(`${skipped} unreadable record(s) skipped — Check Statistics will show the difference.`);
   deltas.add(STATS_ALL, { builtAt: put(new Date()), builtFrom: put(rows.length), firstDate: put(firstDate) });
 
-  const docs = [...deltas.docs].map(([id, d]) => [id, fold({}, d, true)]);
+  // stats-all goes LAST: it carries builtAt, which is what lets a refresh trust
+  // the totals. If a commit part fails midway, builtAt is never stamped on
+  // half-written statistics.
+  const docs = [...deltas.docs].map(([id, d]) => [id, fold({}, d, true)])
+    .sort((a, b) => (a[0] === STATS_ALL) - (b[0] === STATS_ALL));
   onProgress(`Writing ${docs.length.toLocaleString("en-ZA")} statistics documents…`);
   await commitOverwrites(docs, onProgress);
   onProgress("✓ Statistics rebuilt.");
@@ -469,8 +473,15 @@ export async function rebuildStatistics(onProgress = () => {}) {
  * apply exactly as they do to the SDK. Live captures and closes are small and
  * still use the SDK batch.
  */
-const REST_MAX_WRITES = 300;          // Firestore allows 500 per commit
-const REST_MAX_BYTES = 4 * 1024 * 1024; // the request limit is 10 MiB
+/*
+ * Commit size: Firestore also caps a commit by its total work, which counts an
+ * index entry for every field written (and every one replaced). Counter
+ * documents hold thousands of map fields, so a 4 MB commit was refused as
+ * "Transaction too big". Commits start small, and any commit Firestore still
+ * calls too big is split in half and retried, down to one document.
+ */
+const REST_MAX_WRITES = 50;
+const REST_MAX_BYTES = 1024 * 1024;
 
 /** JS value → Firestore REST Value. */
 function restValue(v) {
@@ -504,20 +515,27 @@ async function commitOverwrites(docs, onProgress) {
   }
   if (cur.length) chunks.push(cur);
 
-  for (let i = 0; i < chunks.length; i++) {
+  const send = async (part) => {
     const token = await user.getIdToken();
     const res = await fetch(`https://firestore.googleapis.com/v1/${base}:commit`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ writes: chunks[i] }),
+      body: JSON.stringify({ writes: part }),
     });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      const err = new Error(body?.error?.message || `Firestore returned HTTP ${res.status}`);
-      err.code = String(body?.error?.status || "").toLowerCase().replace(/_/g, "-"); // e.g. "resource-exhausted"
-      throw err;
-    }
-    if (chunks.length > 1) onProgress(`  part ${i + 1} of ${chunks.length} written`);
+    if (res.ok) return;
+    const body = await res.json().catch(() => ({}));
+    const err = new Error(body?.error?.message || `Firestore returned HTTP ${res.status}`);
+    err.code = String(body?.error?.status || "").toLowerCase().replace(/_/g, "-"); // e.g. "resource-exhausted"
+    const tooBig = err.code === "invalid-argument" && /too big|too large|exceed/i.test(err.message);
+    if (!tooBig || part.length === 1) throw err;
+    const mid = Math.ceil(part.length / 2);
+    await send(part.slice(0, mid));
+    await send(part.slice(mid));
+  };
+
+  for (let i = 0; i < chunks.length; i++) {
+    await send(chunks[i]);
+    onProgress(`  part ${i + 1} of ${chunks.length} written`);
   }
 }
 
