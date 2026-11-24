@@ -375,8 +375,11 @@ function wireStats() {
       append("✓ Public snapshot updated.");
       toast("ok", "Statistics rebuilt", `${fmt(res.records)} records counted.`);
     } catch (err) {
-      append("✗ " + (err?.message || err));
-      toast("err", "Rebuild failed", err?.message || "Try again shortly.");
+      const quota = err?.code === "resource-exhausted";
+      append("✗ " + (quota
+        ? "Today's Firestore read quota is used up. Try again after the daily reset (00:00 US Pacific — 09:00–10:00 SAST)."
+        : `${err?.code ? err.code + ": " : ""}${err?.message || err}`));
+      toast("err", "Rebuild failed", quota ? "Daily read quota reached." : (err?.message || "Try again shortly."));
     } finally { rebuildBtn.disabled = false; }
   });
 }

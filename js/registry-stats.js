@@ -53,8 +53,24 @@ const DAY_PREFIX = "stats-day-";
 const DAY = 86400000, HR = 3600000;
 
 export const ymd = (d) => d.toISOString().slice(0, 10);
-export const toDate = (ts) => (ts?.toDate ? ts.toDate() : ts ? new Date(ts) : null);
-const isDate = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+/**
+ * Any stored timestamp shape → a valid Date, or null. Records arrive as
+ * Firestore Timestamps, but imported ones may hold strings or plain
+ * { seconds } maps — and an unreadable value must become null, never an
+ * Invalid Date (which throws in toISOString() and would abort a rebuild).
+ */
+export function toDate(ts) {
+  if (!ts) return null;
+  let d;
+  if (typeof ts.toDate === "function") { try { d = ts.toDate(); } catch { return null; } }
+  else if (ts instanceof Date) d = ts;
+  else if (typeof ts.seconds === "number") d = new Date(ts.seconds * 1000);
+  else d = new Date(ts);
+  return d instanceof Date && !Number.isNaN(d.getTime()) ? d : null;
+}
+/** A "YYYY-MM-DD" string that is also a real calendar date. */
+const isDate = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(new Date(s).getTime());
 
 export const dayId = (date) => DAY_PREFIX + date;
 export const shiftDocId = (when) => `stats-shift-${shiftId(when)}`;
@@ -396,15 +412,26 @@ export async function rebuildStatistics(onProgress = () => {}) {
 
   const deltas = new Deltas();
   deltas.add(STATS_ALL, { total: 0 }).add(STATS_ROUTES, { routes: {} });
-  let firstDate = null;
+  let firstDate = null, skipped = 0;
   for (const r of rows) {
-    const created = toDate(r.createdAt);
-    captureDeltas(r, created, deltas);
-    const td = toDate(r.timeDelivered), ca = toDate(r.closedAt);
-    if (r.closed) closedPart(r, td, deltas);
-    if (td || ca) deltas.add(dayId(ymd(td || ca)), { delivered: 1 });
+    // Build each record's contribution separately, so one malformed record is
+    // reported and skipped instead of aborting the whole rebuild.
+    const own = new Deltas();
+    try {
+      const created = toDate(r.createdAt);
+      captureDeltas(r, created, own);
+      const td = toDate(r.timeDelivered), ca = toDate(r.closedAt);
+      if (r.closed) closedPart(r, td, own);
+      if (td || ca) own.add(dayId(ymd(td || ca)), { delivered: 1 });
+    } catch (err) {
+      skipped++;
+      if (skipped <= 5) onProgress(`  ! skipped ${r.incidentNumber || "a record"}: ${err?.message || err}`);
+      continue;
+    }
+    for (const [id, d] of own.docs) deltas.add(id, d);
     if (isDate(r.date) && (!firstDate || r.date < firstDate)) firstDate = r.date;
   }
+  if (skipped) onProgress(`${skipped} unreadable record(s) skipped — Check Statistics will show the difference.`);
   deltas.add(STATS_ALL, { builtAt: put(new Date()), builtFrom: put(rows.length), firstDate: put(firstDate) });
 
   const docs = [...deltas.docs].map(([id, d]) => [id, fold({}, d, true)]);
@@ -415,7 +442,7 @@ export async function rebuildStatistics(onProgress = () => {}) {
     await batch.commit();
   }
   onProgress("✓ Statistics rebuilt.");
-  return { records: rows.length, documents: docs.length };
+  return { records: rows.length, documents: docs.length, skipped };
 }
 
 /**
